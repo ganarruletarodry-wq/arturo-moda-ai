@@ -65,12 +65,14 @@ async def analyze(
             None, analyze_clothing, saved_paths, oai_key
         )
 
-        # Generazione 4 immagini in parallelo usando la prima foto come riferimento
+        # Generazione 4 immagini in parallelo: foto originale + descrizione GPT-4o
         images = await loop.run_in_executor(
             None,
             partial(
                 generate_clothing_images,
                 reference_image_path=saved_paths[0],
+                model_prompt=analysis.get("prompt_immagine_modella", ""),
+                product_prompt=analysis.get("prompt_sfondo_bianco", ""),
                 api_key=oai_key,
             ),
         )
