@@ -175,16 +175,60 @@ function setStepDone(id) {
 }
 
 // ---- RISULTATI ----
+const MISURE_LABELS = {
+  petto_busto: 'Petto / Busto',
+  spalle: 'Spalle',
+  vita: 'Vita',
+  fianchi: 'Fianchi',
+  lunghezza_totale: 'Lunghezza totale',
+  lunghezza_gamba: 'Lunghezza gamba',
+  maniche: 'Maniche',
+};
+
+function formatMisure(misure) {
+  if (!misure) return '';
+  const lines = [];
+  for (const [key, label] of Object.entries(MISURE_LABELS)) {
+    if (misure[key] && misure[key] !== 'null') {
+      lines.push(`• ${label}: ${misure[key]}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 function showResults(data) {
   const a = data.analysis;
   const images = data.images;
 
   document.getElementById('res-titolo').textContent = a.titolo || '';
-  document.getElementById('res-vinted').textContent = a.descrizione_vinted || '';
-  document.getElementById('res-catawiki').textContent = a.descrizione_catawiki || '';
+
+  // Descrizioni con misure in coda
+  const misureTesto = formatMisure(a.misure);
+  const misureSezione = misureTesto ? `\n\n📏 Misure:\n${misureTesto}` : '';
+  document.getElementById('res-vinted').textContent = (a.descrizione_vinted || '') + misureSezione;
+  document.getElementById('res-catawiki').textContent = (a.descrizione_catawiki || '') + misureSezione;
+
   document.getElementById('res-hashtag').textContent = (a.hashtag || []).join(' ');
   document.getElementById('res-prezzo').textContent =
     `€${a.prezzo_suggerito_min} – €${a.prezzo_suggerito_max}`;
+
+  // Sezione misure visiva
+  const misure = a.misure || {};
+  const lista = document.getElementById('res-misure');
+  lista.innerHTML = '';
+  let hasMisure = false;
+  for (const [key, label] of Object.entries(MISURE_LABELS)) {
+    if (misure[key] && misure[key] !== 'null') {
+      hasMisure = true;
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="misure-key">${label}:</span><span class="misure-val">${misure[key]}</span>`;
+      lista.appendChild(li);
+    }
+  }
+  document.getElementById('block-misure').style.display = hasMisure ? '' : 'none';
+  if (misure.note_misure) {
+    document.getElementById('res-misure-note').textContent = `ℹ️ ${misure.note_misure}`;
+  }
 
   // Info chips
   const chips = document.getElementById('info-chips');

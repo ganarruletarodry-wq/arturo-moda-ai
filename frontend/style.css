@@ -455,6 +455,42 @@ body {
   color: var(--text-secondary);
 }
 
+/* MISURE */
+.misure-box {
+  background: #fafaf8;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+.misure-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+}
+.misure-list li {
+  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.misure-list li::before {
+  content: "•";
+  color: var(--accent);
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+.misure-key { color: var(--text-secondary); }
+.misure-val { font-weight: 600; }
+.misure-note {
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
 /* UTILS */
 .hidden { display: none !important; }
 
