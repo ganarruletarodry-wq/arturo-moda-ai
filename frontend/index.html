@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arturo — Annunci Moda AI</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- HEADER -->
+    <header class="header">
+      <div class="header-inner">
+        <div class="logo">
+          <span class="logo-icon">👗</span>
+          <span class="logo-text">Arturo</span>
+          <span class="logo-badge">AI</span>
+        </div>
+        <p class="header-sub">Trasforma le tue foto in annunci professionali</p>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="main">
+
+      <!-- STEP 1: UPLOAD -->
+      <section class="card" id="section-upload">
+        <div class="card-header">
+          <span class="step-badge">1</span>
+          <h2>Carica le foto dell'indumento</h2>
+        </div>
+
+        <!-- API Key (collapsible) -->
+        <details class="api-keys-section" id="api-keys-details">
+          <summary>🔑 Imposta la tua API Key OpenAI (prima volta)</summary>
+          <div class="api-keys-grid">
+            <div class="field">
+              <label for="openai-key">OpenAI API Key</label>
+              <input type="password" id="openai-key" placeholder="sk-..." autocomplete="off" />
+            </div>
+            <p class="api-note">La chiave viene salvata solo nel tuo browser, non su nessun server. Serve un account su platform.openai.com</p>
+          </div>
+        </details>
+
+        <!-- Drop zone -->
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-inner" id="dropzone-inner">
+            <div class="drop-icon">📸</div>
+            <p class="drop-title">Trascina le foto qui</p>
+            <p class="drop-sub">oppure</p>
+            <button class="btn btn-outline" onclick="document.getElementById('file-input').click()">
+              Sfoglia file
+            </button>
+            <p class="drop-hint">JPG, PNG, WEBP · Max 4 foto · Max 10 MB cad.</p>
+          </div>
+          <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.webp" multiple hidden />
+        </div>
+
+        <!-- Preview -->
+        <div class="preview-grid" id="preview-grid"></div>
+
+        <!-- Analyze button -->
+        <div class="action-row">
+          <button class="btn btn-primary btn-large" id="btn-analyze" disabled>
+            <span class="btn-icon">✨</span>
+            Genera descrizione e immagini
+          </button>
+        </div>
+      </section>
+
+      <!-- STEP 2: LOADING -->
+      <section class="card hidden" id="section-loading">
+        <div class="loading-center">
+          <div class="spinner"></div>
+          <h3 id="loading-title">Analisi in corso…</h3>
+          <p id="loading-sub" class="loading-sub">GPT-4o sta esaminando le tue foto</p>
+          <div class="progress-steps">
+            <div class="progress-step" id="step-claude">
+              <span class="step-dot active"></span>
+              <span>Analisi indumento con GPT-4o</span>
+            </div>
+            <div class="progress-step" id="step-dalle">
+              <span class="step-dot"></span>
+              <span>Generazione immagini con DALL-E 3</span>
+            </div>
+            <div class="progress-step" id="step-done">
+              <span class="step-dot"></span>
+              <span>Preparazione risultati</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 3: RESULTS -->
+      <section class="card hidden" id="section-results">
+        <div class="card-header">
+          <span class="step-badge success">✓</span>
+          <h2>Il tuo annuncio è pronto!</h2>
+        </div>
+
+        <!-- Titolo -->
+        <div class="result-block">
+          <label class="result-label">Titolo annuncio</label>
+          <div class="copy-row">
+            <span id="res-titolo" class="result-value title-value"></span>
+            <button class="btn btn-copy" onclick="copyText('res-titolo')">Copia</button>
+          </div>
+        </div>
+
+        <!-- Info rapide -->
+        <div class="info-chips" id="info-chips"></div>
+
+        <!-- Tabs descrizione -->
+        <div class="tabs">
+          <button class="tab active" data-tab="vinted">Vinted</button>
+          <button class="tab" data-tab="catawiki">Catawiki</button>
+        </div>
+
+        <div class="tab-content" id="tab-vinted">
+          <div class="copy-row stacked">
+            <pre id="res-vinted" class="desc-text"></pre>
+            <button class="btn btn-copy" onclick="copyText('res-vinted')">Copia</button>
+          </div>
+        </div>
+        <div class="tab-content hidden" id="tab-catawiki">
+          <div class="copy-row stacked">
+            <pre id="res-catawiki" class="desc-text"></pre>
+            <button class="btn btn-copy" onclick="copyText('res-catawiki')">Copia</button>
+          </div>
+        </div>
+
+        <!-- Hashtag -->
+        <div class="result-block">
+          <label class="result-label">Hashtag</label>
+          <div class="copy-row">
+            <span id="res-hashtag" class="result-value"></span>
+            <button class="btn btn-copy" onclick="copyText('res-hashtag')">Copia</button>
+          </div>
+        </div>
+
+        <!-- Prezzo suggerito -->
+        <div class="result-block">
+          <label class="result-label">Prezzo consigliato</label>
+          <span id="res-prezzo" class="price-badge"></span>
+        </div>
+
+        <!-- Immagini generate -->
+        <div class="result-block">
+          <label class="result-label">Immagini generate</label>
+          <div class="images-section">
+            <div class="images-group">
+              <p class="images-group-title">👤 Con modella</p>
+              <div class="images-row" id="images-model"></div>
+            </div>
+            <div class="images-group">
+              <p class="images-group-title">⬜ Sfondo bianco</p>
+              <div class="images-row" id="images-product"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nuovo annuncio -->
+        <div class="action-row">
+          <button class="btn btn-outline btn-large" onclick="resetApp()">
+            ← Nuovo annuncio
+          </button>
+        </div>
+      </section>
+
+      <!-- ERRORE -->
+      <div class="error-toast hidden" id="error-toast">
+        <span class="error-icon">⚠️</span>
+        <span id="error-msg"></span>
+        <button class="error-close" onclick="hideError()">✕</button>
+      </div>
+
+    </main>
+
+    <footer class="footer">
+      Powered by GPT-4o Vision + DALL-E 3 · Arturo v1.0
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

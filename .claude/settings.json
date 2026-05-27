@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "arturo-openai": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "cwd": "C:/Users/Usuario/Desktop/PROGETTI/ARTURO"
+    }
+  }
+}
