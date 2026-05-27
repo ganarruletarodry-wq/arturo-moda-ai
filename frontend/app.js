@@ -1,6 +1,8 @@
 // Stato applicazione
 const state = {
   files: [],
+  lastAnalysis: null,
+  lastImages: null,
 };
 
 // Elementi DOM
@@ -259,6 +261,10 @@ function showResults(data) {
     if (images[key]) productRow.appendChild(buildImageCard(images[key]));
   });
 
+  // Salva stato per pubblicazione
+  state.lastAnalysis = a;
+  state.lastImages = images;
+
   sectionLoading.classList.add('hidden');
   sectionResults.classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -314,18 +320,98 @@ function copyText(elementId) {
 // ---- RESET ----
 function resetApp() {
   state.files = [];
+  state.lastAnalysis = null;
+  state.lastImages = null;
   previewGrid.innerHTML = '';
   btnAnalyze.disabled = true;
   // reset steps
   document.querySelectorAll('.step-dot').forEach((d) => {
     d.classList.remove('active', 'done');
   });
-  document.getElementById('loading-sub').textContent = 'Claude sta esaminando le tue foto';
+  document.getElementById('loading-sub').textContent = 'GPT-4o sta esaminando le tue foto';
   sectionResults.classList.add('hidden');
   sectionLoading.classList.add('hidden');
   sectionUpload.classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+// ---- PUBBLICA ----
+let currentPlatform = null;
+
+function openPublishModal(platform) {
+  currentPlatform = platform;
+  const labels = { vinted: '👗 Pubblica su Vinted', catawiki: '🏛️ Pubblica su Catawiki' };
+  document.getElementById('modal-title').textContent = labels[platform];
+  document.getElementById('modal-desc').textContent =
+    `Inserisci le credenziali del tuo account ${platform.charAt(0).toUpperCase() + platform.slice(1)}.`;
+  document.getElementById('publish-modal').classList.remove('hidden');
+}
+
+function closePublishModal() {
+  document.getElementById('publish-modal').classList.add('hidden');
+  document.getElementById('pub-email').value = '';
+  document.getElementById('pub-password').value = '';
+  document.getElementById('publish-btn-text').textContent = 'Pubblica ora';
+  document.getElementById('btn-publish-confirm').disabled = false;
+}
+
+async function confirmPublish() {
+  const email = document.getElementById('pub-email').value.trim();
+  const password = document.getElementById('pub-password').value.trim();
+  if (!email || !password) {
+    showError('Inserisci email e password.');
+    return;
+  }
+  if (!state.lastAnalysis || !state.lastImages) {
+    showError('Dati annuncio non trovati. Ricarica la pagina.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-publish-confirm');
+  btn.disabled = true;
+  document.getElementById('publish-btn-text').textContent = 'Pubblicazione…';
+
+  const imageFilenames = Object.values(state.lastImages).filter(Boolean);
+
+  try {
+    const res = await fetch(`/api/publish/${currentPlatform}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        analysis: state.lastAnalysis,
+        image_filenames: imageFilenames,
+        email,
+        password,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Errore sconosciuto');
+
+    closePublishModal();
+    document.getElementById('success-msg').textContent = data.message || 'Annuncio pubblicato!';
+    const link = document.getElementById('success-link');
+    if (data.url) {
+      link.href = data.url;
+      link.classList.remove('hidden');
+    } else {
+      link.classList.add('hidden');
+    }
+    document.getElementById('success-toast').classList.remove('hidden');
+    setTimeout(() => {
+      document.getElementById('success-toast').classList.add('hidden');
+    }, 8000);
+  } catch (err) {
+    btn.disabled = false;
+    document.getElementById('publish-btn-text').textContent = 'Pubblica ora';
+    showError(`Errore pubblicazione: ${err.message}`);
+  }
+}
+
+// Chiudi modale cliccando fuori
+document.getElementById('publish-modal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('publish-modal')) closePublishModal();
+});
 
 // ---- ERRORI ----
 function showError(msg) {

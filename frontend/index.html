@@ -171,6 +171,19 @@
           </div>
         </div>
 
+        <!-- Pubblica -->
+        <div class="publish-row">
+          <label class="result-label">Pubblica direttamente</label>
+          <div class="publish-buttons">
+            <button class="btn btn-publish btn-vinted" onclick="openPublishModal('vinted')">
+              <span>👗</span> Pubblica su Vinted
+            </button>
+            <button class="btn btn-publish btn-catawiki" onclick="openPublishModal('catawiki')">
+              <span>🏛️</span> Pubblica su Catawiki
+            </button>
+          </div>
+        </div>
+
         <!-- Nuovo annuncio -->
         <div class="action-row">
           <button class="btn btn-outline btn-large" onclick="resetApp()">
@@ -187,6 +200,42 @@
       </div>
 
     </main>
+
+    <!-- MODALE CREDENZIALI -->
+    <div class="modal-overlay hidden" id="publish-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 id="modal-title">Pubblica annuncio</h3>
+          <button class="modal-close" onclick="closePublishModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc" id="modal-desc"></p>
+          <div class="field">
+            <label for="pub-email">Email account</label>
+            <input type="email" id="pub-email" placeholder="tua@email.com" autocomplete="email" />
+          </div>
+          <div class="field">
+            <label for="pub-password">Password</label>
+            <input type="password" id="pub-password" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+          <p class="api-note">Le credenziali non vengono salvate — usate solo per questa pubblicazione.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" onclick="closePublishModal()">Annulla</button>
+          <button class="btn btn-primary" id="btn-publish-confirm" onclick="confirmPublish()">
+            <span id="publish-btn-text">Pubblica ora</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOAST SUCCESSO PUBBLICAZIONE -->
+    <div class="success-toast hidden" id="success-toast">
+      <span>✅</span>
+      <span id="success-msg"></span>
+      <a id="success-link" href="#" target="_blank" class="toast-link hidden">Apri annuncio →</a>
+      <button class="error-close" onclick="document.getElementById('success-toast').classList.add('hidden')">✕</button>
+    </div>
 
     <footer class="footer">
       Powered by GPT-4o Vision + DALL-E 3 · Arturo v1.0

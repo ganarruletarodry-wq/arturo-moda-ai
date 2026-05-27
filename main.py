@@ -6,12 +6,15 @@ from typing import Optional
 from functools import partial
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from dotenv import load_dotenv
 
 from services.openai_describe_service import analyze_clothing
 from services.image_service import generate_clothing_images
+from services.vinted_service import pubblica_su_vinted
+from services.catawiki_service import pubblica_su_catawiki
 
 load_dotenv()
 
@@ -107,6 +110,39 @@ async def download_image(filename: str):
         media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
     )
+
+
+class PublishRequest(BaseModel):
+    analysis: dict
+    image_filenames: list[str]
+    email: str
+    password: str
+
+
+@app.post("/api/publish/vinted")
+async def publish_vinted(req: PublishRequest):
+    result = await pubblica_su_vinted(
+        analysis=req.analysis,
+        image_filenames=req.image_filenames,
+        email=req.email,
+        password=req.password,
+    )
+    if not result.get("success"):
+        raise HTTPException(500, result.get("error", "Errore sconosciuto"))
+    return result
+
+
+@app.post("/api/publish/catawiki")
+async def publish_catawiki(req: PublishRequest):
+    result = await pubblica_su_catawiki(
+        analysis=req.analysis,
+        image_filenames=req.image_filenames,
+        email=req.email,
+        password=req.password,
+    )
+    if not result.get("success"):
+        raise HTTPException(500, result.get("error", "Errore sconosciuto"))
+    return result
 
 
 @app.get("/health")
