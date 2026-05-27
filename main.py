@@ -1,7 +1,9 @@
 import os
 import uuid
+import asyncio
 from pathlib import Path
 from typing import Optional
+from functools import partial
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.staticfiles import StaticFiles
@@ -56,12 +58,21 @@ async def analyze(
         dest.write_bytes(content)
         saved_paths.append(str(dest))
 
+    loop = asyncio.get_event_loop()
     try:
-        analysis = analyze_clothing(saved_paths, oai_key)
-        images = generate_clothing_images(
-            model_prompt=analysis.get("prompt_immagine_modella", ""),
-            product_prompt=analysis.get("prompt_sfondo_bianco", ""),
-            api_key=oai_key,
+        # Analisi GPT-4o su thread separato (non blocca il server)
+        analysis = await loop.run_in_executor(
+            None, analyze_clothing, saved_paths, oai_key
+        )
+
+        # Generazione 4 immagini in parallelo usando la prima foto come riferimento
+        images = await loop.run_in_executor(
+            None,
+            partial(
+                generate_clothing_images,
+                reference_image_path=saved_paths[0],
+                api_key=oai_key,
+            ),
         )
     except Exception as e:
         for p in saved_paths:
@@ -103,7 +114,6 @@ async def health():
 
 @app.get("/api/config")
 async def config():
-    """Dice al frontend se la API key è già configurata nel .env del server."""
     has_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
     return {"server_has_key": has_key}
 

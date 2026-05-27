@@ -1,7 +1,9 @@
 import openai
 import base64
 import json
+import io
 from pathlib import Path
+from PIL import Image
 
 
 SYSTEM_PROMPT = """Sei un esperto di moda e vendita online su piattaforme come Vinted, Catawiki, Subito e eBay.
@@ -23,37 +25,39 @@ ANALYSIS_PROMPT = """Analizza attentamente queste foto dell'indumento e rispondi
   "hashtag": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4", "#hashtag5"],
   "prezzo_suggerito_min": 5,
   "prezzo_suggerito_max": 30,
-  "prompt_immagine_modella": "Prompt in inglese per gpt-image-2: descrivi l'indumento in dettaglio per generare una foto di una modella che lo indossa. Sii molto specifico su colori, stile, forma.",
-  "prompt_sfondo_bianco": "Prompt in inglese per gpt-image-2: descrivi l'indumento in dettaglio per generare una foto prodotto su sfondo bianco. Stile e-commerce professionale."
+  "prompt_immagine_modella": "Prompt in inglese per gpt-image-1: descrivi l'indumento in dettaglio per generare una foto di una modella che lo indossa. Sii molto specifico su colori, stile, forma.",
+  "prompt_sfondo_bianco": "Prompt in inglese per gpt-image-1: descrivi l'indumento in dettaglio per generare una foto prodotto su sfondo bianco. Stile e-commerce professionale."
 }
 
-Assicurati che tutti i valori siano in italiano tranne i due prompt per DALL-E che devono essere in inglese.
+Assicurati che tutti i valori siano in italiano tranne i due prompt per gpt-image-1 che devono essere in inglese.
 Rispondi SOLO con il JSON, niente altro."""
+
+MAX_IMAGE_PX = 1024  # ridimensiona le foto prima di mandarle a GPT-4o
 
 
 def _encode_image(image_path: str) -> tuple[str, str]:
-    path = Path(image_path)
-    media_types = {
-        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".png": "image/png", ".webp": "image/webp",
-    }
-    media_type = media_types.get(path.suffix.lower(), "image/jpeg")
-    with open(image_path, "rb") as f:
-        data = base64.standard_b64encode(f.read()).decode("utf-8")
-    return data, media_type
+    """Ridimensiona l'immagine a max 1024px e la codifica in base64."""
+    img = Image.open(image_path).convert("RGB")
+
+    if max(img.size) > MAX_IMAGE_PX:
+        img.thumbnail((MAX_IMAGE_PX, MAX_IMAGE_PX), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    data = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+    return data, "image/jpeg"
 
 
 def analyze_clothing(image_paths: list[str], api_key: str) -> dict:
     client = openai.OpenAI(api_key=api_key)
 
-    content = []
+    content: list[dict] = []
     for path in image_paths[:4]:
         data, media_type = _encode_image(path)
         content.append({
             "type": "image_url",
             "image_url": {"url": f"data:{media_type};base64,{data}", "detail": "high"},
         })
-
     content.append({"type": "text", "text": ANALYSIS_PROMPT})
 
     response = client.chat.completions.create(
