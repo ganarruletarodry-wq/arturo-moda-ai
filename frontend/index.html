@@ -4,9 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Arturo — Annunci Moda AI</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23a78bfa'/%3E%3Cstop offset='0.55' stop-color='%23f472b6'/%3E%3Cstop offset='1' stop-color='%23fbbf24'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial,sans-serif' font-size='38' font-weight='700' fill='%230a0a0f'%3EA%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
   <div id="app">
@@ -15,7 +16,7 @@
     <header class="header">
       <div class="header-inner">
         <div class="logo">
-          <span class="logo-icon">👗</span>
+          <span class="logo-mark">A</span>
           <span class="logo-text">Arturo</span>
           <span class="logo-badge">AI</span>
         </div>
@@ -31,6 +32,12 @@
         <div class="card-header">
           <span class="step-badge">1</span>
           <h2>Carica le foto dell'indumento</h2>
+        </div>
+
+        <!-- Riprendi ultimo annuncio -->
+        <div class="restore-bar hidden" id="restore-bar">
+          <span id="restore-text">Hai un annuncio generato in precedenza</span>
+          <button class="btn btn-outline" onclick="restoreLast()">↩ Riapri ultimo annuncio</button>
         </div>
 
         <!-- API Key (collapsible) -->
@@ -78,13 +85,13 @@
           <h3 id="loading-title">Analisi in corso…</h3>
           <p id="loading-sub" class="loading-sub">GPT-4o sta esaminando le tue foto</p>
           <div class="progress-steps">
-            <div class="progress-step" id="step-claude">
+            <div class="progress-step" id="step-analyze">
               <span class="step-dot active"></span>
               <span>Analisi indumento con GPT-4o</span>
             </div>
-            <div class="progress-step" id="step-dalle">
+            <div class="progress-step" id="step-images">
               <span class="step-dot"></span>
-              <span>Generazione immagini con DALL-E 3</span>
+              <span>Generazione immagini fedeli all'originale</span>
             </div>
             <div class="progress-step" id="step-done">
               <span class="step-dot"></span>
@@ -176,10 +183,10 @@
           <label class="result-label">Pubblica direttamente</label>
           <div class="publish-buttons">
             <button class="btn btn-publish btn-vinted" onclick="openPublishModal('vinted')">
-              <span>👗</span> Pubblica su Vinted
+              <span class="brand-dot">V</span> Pubblica su Vinted
             </button>
             <button class="btn btn-publish btn-catawiki" onclick="openPublishModal('catawiki')">
-              <span>🏛️</span> Pubblica su Catawiki
+              <span class="brand-dot">C</span> Pubblica su Catawiki
             </button>
           </div>
         </div>
@@ -210,20 +217,18 @@
         </div>
         <div class="modal-body">
           <p class="modal-desc" id="modal-desc"></p>
-          <div class="field">
-            <label for="pub-email">Email account</label>
-            <input type="email" id="pub-email" placeholder="tua@email.com" autocomplete="email" />
-          </div>
-          <div class="field">
-            <label for="pub-password">Password</label>
-            <input type="password" id="pub-password" placeholder="••••••••" autocomplete="current-password" />
-          </div>
-          <p class="api-note">Le credenziali non vengono salvate — usate solo per questa pubblicazione.</p>
+          <ol class="modal-steps">
+            <li>Si apre una <strong>finestra del browser</strong> dedicata</li>
+            <li>La <strong>prima volta</strong> fai il login tu (resterà memorizzato)</li>
+            <li>L'app <strong>compila l'annuncio</strong>: foto, titolo, descrizione, misure, prezzo…</li>
+            <li><strong>Controlli e clicchi Pubblica tu</strong> — nulla viene inviato senza il tuo ok</li>
+          </ol>
+          <p class="api-note">Nessuna password passa dall'app: accedi direttamente sul sito ufficiale.</p>
         </div>
         <div class="modal-footer">
           <button class="btn btn-outline" onclick="closePublishModal()">Annulla</button>
           <button class="btn btn-primary" id="btn-publish-confirm" onclick="confirmPublish()">
-            <span id="publish-btn-text">Pubblica ora</span>
+            <span id="publish-btn-text">Apri e precompila</span>
           </button>
         </div>
       </div>
@@ -238,7 +243,7 @@
     </div>
 
     <footer class="footer">
-      Powered by GPT-4o Vision + DALL-E 3 · Arturo v1.0
+      Powered by GPT-4o Vision + GPT Image · Arturo v1.1
     </footer>
   </div>
 

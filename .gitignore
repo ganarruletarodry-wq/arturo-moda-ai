@@ -5,3 +5,5 @@ uploads/
 generated/
 .venv/
 venv/
+browser_profiles/
+.installed

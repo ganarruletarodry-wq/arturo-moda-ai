@@ -36,8 +36,8 @@ ANALYSIS_PROMPT = """Analizza attentamente queste foto dell'indumento e rispondi
   "hashtag": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4", "#hashtag5"],
   "prezzo_suggerito_min": 5,
   "prezzo_suggerito_max": 30,
-  "prompt_immagine_modella": "Prompt in inglese per gpt-image-1: descrivi l'indumento in dettaglio per generare una foto di una modella che lo indossa. Sii molto specifico su colori, stile, forma.",
-  "prompt_sfondo_bianco": "Prompt in inglese per gpt-image-1: descrivi l'indumento in dettaglio per generare una foto prodotto su sfondo bianco. Stile e-commerce professionale."
+  "prompt_immagine_modella": "Descrizione in inglese ULTRA-DETTAGLIATA dell'indumento per gpt-image-1 (foto con modella). Specifica: colore esatto e sfumature, tipo di tessuto e texture, ogni stampa/motivo e la sua posizione, testo di loghi/scritte riportato ESATTAMENTE carattere per carattere, bottoni/zip/cuciture/tasche/colletto/polsini, vestibilità (slim, oversize, ecc.).",
+  "prompt_sfondo_bianco": "Stessa descrizione ULTRA-DETTAGLIATA in inglese per la foto prodotto su sfondo bianco: colore esatto, tessuto, stampe e loro posizione, testo di loghi/scritte esatto, dettagli costruttivi."
 }
 
 ISTRUZIONI PER LE MISURE:
@@ -77,15 +77,11 @@ def analyze_clothing(image_paths: list[str], api_key: str) -> dict:
     response = client.chat.completions.create(
         model="gpt-4o",
         max_tokens=3000,
+        response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": content},
         ],
     )
 
-    raw = response.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
+    return json.loads(response.choices[0].message.content)

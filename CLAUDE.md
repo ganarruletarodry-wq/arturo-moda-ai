@@ -1,7 +1,8 @@
 # Arturo — Annunci Moda AI
 
 App web che trasforma foto di indumenti in annunci professionali per Vinted, Catawiki, Subito e simili.
-Usa **GPT-4o Vision** per l'analisi e **DALL-E 3** per generare immagini professionali.
+Usa **GPT-4o Vision** per l'analisi e **gpt-image-1** (`images.edit` con `input_fidelity=high`) per
+generare immagini professionali mantenendo l'indumento identico alle foto originali.
 
 ## Stack
 
@@ -9,7 +10,8 @@ Usa **GPT-4o Vision** per l'analisi e **DALL-E 3** per generare immagini profess
 |-------|-----------|
 | Backend | Python 3.14, FastAPI, uvicorn |
 | AI Vision | OpenAI GPT-4o (analisi foto) |
-| AI Immagini | OpenAI DALL-E 3 (generazione 4 foto) |
+| AI Immagini | OpenAI gpt-image-1 via `images.edit` + `input_fidelity=high` (4 foto fedeli all'originale) |
+| Pubblicazione | Playwright (automazione Vinted/Catawiki, sperimentale) |
 | Frontend | HTML + CSS + JavaScript puro |
 | MCP Server | `mcp` SDK Python 1.27+ |
 
@@ -21,7 +23,9 @@ ARTURO/
 ├── mcp_server.py                    # MCP server — strumenti per Claude
 ├── services/
 │   ├── openai_describe_service.py   # GPT-4o Vision: analisi indumento
-│   └── image_service.py             # DALL-E 3: generazione 4 immagini
+│   ├── image_service.py             # gpt-image-1: 4 immagini fedeli (images.edit + input_fidelity)
+│   ├── vinted_service.py            # Playwright: pubblicazione automatica su Vinted
+│   └── catawiki_service.py          # Playwright: pubblicazione automatica su Catawiki
 ├── frontend/
 │   ├── index.html                   # UI principale
 │   ├── style.css                    # Design
@@ -39,10 +43,13 @@ ARTURO/
 File `.env` nella root del progetto:
 
 ```
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...          # obbligatoria — platform.openai.com → API Keys
+IMAGE_QUALITY=high             # opzionale: high (default, max fedeltà) | medium (più economico)
+REQUIRE_CLIENT_KEY=true        # opzionale: su server pubblico, ogni utente usa la propria chiave
+APP_PASSWORD=...               # opzionale: protegge analisi/pubblicazione (consigliata online)
+PLAYWRIGHT_HEADLESS=true       # opzionale: obbligatorio su server senza display
+GENERATED_MAX_AGE_DAYS=14      # opzionale: pulizia automatica immagini generate
 ```
-
-Una sola chiave necessaria (OpenAI). Ottienila su platform.openai.com → API Keys.
 
 ## Avvio app web
 
@@ -108,9 +115,11 @@ Output: JSON con titolo, categoria, genere, colori, materiale, taglia, brand,
 ```
 
 ### `genera_immagini_moda`
-Genera 4 immagini professionali con DALL-E 3.
+Genera 4 immagini professionali con gpt-image-1. Passare sempre le foto originali
+in `percorsi_riferimento` per mantenere l'indumento identico (images.edit + input_fidelity=high).
 ```
 Input:  prompt_modella: str, prompt_sfondo_bianco: str  (in inglese)
+        percorsi_riferimento: list[str] | None  — foto reali del capo (max 4, consigliato)
 Output: JSON con percorsi dei 4 file PNG generati in generated/
         Chiavi: model_front, model_lifestyle, product_flat, product_hanger
 ```
@@ -149,6 +158,9 @@ Output: JSON array di ID modelli
 | POST | `/api/analyze` | Analisi + generazione immagini |
 | GET | `/api/image/{filename}` | Visualizza immagine generata |
 | GET | `/api/download/{filename}` | Scarica immagine generata |
+| POST | `/api/publish/vinted` | Precompila l'annuncio su Vinted in un browser visibile; l'utente controlla e pubblica (solo locale) |
+| POST | `/api/publish/catawiki` | Precompila il lotto su Catawiki in un browser visibile; l'utente controlla e invia (solo locale) |
+| GET | `/api/config` | Indica se il server ha già la chiave OpenAI |
 | GET | `/health` | Health check |
 | GET | `/docs` | Swagger UI (FastAPI auto-generato) |
 
@@ -179,16 +191,18 @@ uploads/ pulito automaticamente dopo elaborazione
 | Operazione | Costo stimato |
 |-----------|--------------|
 | GPT-4o Vision (analisi 1-4 foto) | ~€0.01–0.03 |
-| DALL-E 3 standard 1024×1024 × 4 | ~€0.16 |
-| **Totale per annuncio** | **~€0.17–0.20** |
+| gpt-image-1 high + input_fidelity 1024×1024 × 4 | ~€0.70–0.80 |
+| gpt-image-1 medium (`IMAGE_QUALITY=medium`) × 4 | ~€0.25–0.30 |
+| **Totale per annuncio (high)** | **~€0.75–0.85** |
+| **Totale per annuncio (medium)** | **~€0.30** |
 
 ## Roadmap
 
 - [x] Analisi indumento con GPT-4o Vision
-- [x] Generazione 4 immagini con DALL-E 3
+- [x] Generazione 4 immagini fedeli all'originale (gpt-image-1 + input_fidelity=high)
 - [x] Descrizioni ottimizzate per Vinted e Catawiki
+- [x] Misure stimate (petto, spalle, vita, fianchi, ecc.)
 - [x] MCP server con 6 strumenti
-- [ ] Auto-upload annunci su Vinted (automazione browser)
-- [ ] Auto-upload annunci su Catawiki
+- [x] Auto-upload annunci su Vinted/Catawiki (Playwright, sperimentale — captcha possibili)
 - [ ] Storico annunci creati
 - [ ] Supporto video/reels del prodotto

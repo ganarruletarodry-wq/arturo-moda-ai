@@ -1,6 +1,8 @@
+# Online la pubblicazione assistita è disattivata (serve uno schermo),
+# quindi non serve installare i browser Playwright: build più veloce.
 [build]
 builder = "nixpacks"
-buildCommand = "pip install -r requirements.txt && python -m playwright install chromium --with-deps"
+buildCommand = "pip install -r requirements.txt"
 
 [deploy]
 startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"

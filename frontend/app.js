@@ -16,14 +16,53 @@ const sectionResults = document.getElementById('section-results');
 
 // ---- CARICAMENTO API KEY da localStorage + controllo server ----
 let serverHasKey = false;
+let passwordRequired = false;
+let publishAvailable = true;
+
+// Password dell'app (solo per versione online)
+function getAppPassword() {
+  if (!passwordRequired) return '';
+  let p = localStorage.getItem('arturo_app_password') || '';
+  if (!p) {
+    p = (prompt('🔒 Inserisci la password dell\'app:') || '').trim();
+    if (p) localStorage.setItem('arturo_app_password', p);
+  }
+  return p;
+}
+
+function handleUnauthorized() {
+  localStorage.removeItem('arturo_app_password');
+  showError('Password dell\'app errata. Riprova.');
+}
 
 window.addEventListener('DOMContentLoaded', async () => {
-  // Controlla se il server ha già la chiave nel .env
+  // Se c'è un annuncio generato in precedenza, offri di riaprirlo
+  try {
+    const saved = JSON.parse(localStorage.getItem('arturo_last_result') || 'null');
+    if (saved && saved.analysis && saved.images) {
+      const when = saved.ts
+        ? new Date(saved.ts).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+        : '';
+      document.getElementById('restore-text').textContent =
+        `“${saved.analysis.titolo || 'Ultimo annuncio'}”${when ? ' · ' + when : ''}`;
+      document.getElementById('restore-bar').classList.remove('hidden');
+    }
+  } catch (_) {}
+
+  // Controlla configurazione server (chiave, password, pubblicazione)
   try {
     const res = await fetch('/api/config');
     const cfg = await res.json();
     serverHasKey = cfg.server_has_key === true;
+    passwordRequired = cfg.password_required === true;
+    publishAvailable = cfg.publish_available !== false;
   } catch (_) {}
+
+  // Online i bottoni "Pubblica" non possono aprire il browser: nascondili
+  if (!publishAvailable) {
+    const row = document.querySelector('.publish-row');
+    if (row) row.style.display = 'none';
+  }
 
   const apiSection = document.getElementById('api-keys-details');
 
@@ -127,7 +166,7 @@ async function startAnalysis() {
   sectionLoading.classList.remove('hidden');
 
   // Simula progress step 1 subito
-  setStepActive('step-claude');
+  setStepActive('step-analyze');
 
   try {
     const formData = new FormData();
@@ -136,18 +175,24 @@ async function startAnalysis() {
 
     // Dopo 3s simula passaggio allo step 2
     const stepTimer = setTimeout(() => {
-      setStepDone('step-claude');
-      setStepActive('step-dalle');
-      document.getElementById('loading-sub').textContent = 'DALL-E 3 sta generando le 4 immagini…';
+      setStepDone('step-analyze');
+      setStepActive('step-images');
+      document.getElementById('loading-sub').textContent =
+        'Generazione delle 4 immagini in alta fedeltà… (può richiedere 1-2 minuti)';
     }, 3000);
 
     const response = await fetch('/api/analyze', {
       method: 'POST',
+      headers: passwordRequired ? { 'X-App-Password': getAppPassword() } : {},
       body: formData,
     });
 
     clearTimeout(stepTimer);
 
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error('Password dell\'app richiesta.');
+    }
     if (!response.ok) {
       const err = await response.json().catch(() => ({ detail: 'Errore sconosciuto' }));
       throw new Error(err.detail || `Errore server ${response.status}`);
@@ -155,8 +200,8 @@ async function startAnalysis() {
 
     const data = await response.json();
 
-    setStepDone('step-claude');
-    setStepDone('step-dalle');
+    setStepDone('step-analyze');
+    setStepDone('step-images');
     setStepActive('step-done');
 
     setTimeout(() => showResults(data), 600);
@@ -261,9 +306,12 @@ function showResults(data) {
     if (images[key]) productRow.appendChild(buildImageCard(images[key]));
   });
 
-  // Salva stato per pubblicazione
+  // Salva stato per pubblicazione + persistenza per riaprire senza rigenerare
   state.lastAnalysis = a;
   state.lastImages = images;
+  try {
+    localStorage.setItem('arturo_last_result', JSON.stringify({ analysis: a, images, ts: Date.now() }));
+  } catch (_) {}
 
   sectionLoading.classList.add('hidden');
   sectionResults.classList.remove('hidden');
@@ -317,6 +365,20 @@ function copyText(elementId) {
   });
 }
 
+// ---- RIPRENDI ULTIMO ANNUNCIO ----
+function restoreLast() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('arturo_last_result') || 'null');
+    if (!saved || !saved.analysis || !saved.images) {
+      showError('Nessun annuncio salvato trovato.');
+      return;
+    }
+    showResults({ analysis: saved.analysis, images: saved.images });
+  } catch (_) {
+    showError('Impossibile ripristinare l\'ultimo annuncio.');
+  }
+}
+
 // ---- RESET ----
 function resetApp() {
   state.files = [];
@@ -340,28 +402,19 @@ let currentPlatform = null;
 
 function openPublishModal(platform) {
   currentPlatform = platform;
-  const labels = { vinted: '👗 Pubblica su Vinted', catawiki: '🏛️ Pubblica su Catawiki' };
+  const labels = { vinted: 'Pubblica su Vinted', catawiki: 'Pubblica su Catawiki' };
   document.getElementById('modal-title').textContent = labels[platform];
-  document.getElementById('modal-desc').textContent =
-    `Inserisci le credenziali del tuo account ${platform.charAt(0).toUpperCase() + platform.slice(1)}.`;
+  document.getElementById('modal-desc').textContent = 'Come funziona:';
   document.getElementById('publish-modal').classList.remove('hidden');
 }
 
 function closePublishModal() {
   document.getElementById('publish-modal').classList.add('hidden');
-  document.getElementById('pub-email').value = '';
-  document.getElementById('pub-password').value = '';
-  document.getElementById('publish-btn-text').textContent = 'Pubblica ora';
+  document.getElementById('publish-btn-text').textContent = 'Apri e precompila';
   document.getElementById('btn-publish-confirm').disabled = false;
 }
 
 async function confirmPublish() {
-  const email = document.getElementById('pub-email').value.trim();
-  const password = document.getElementById('pub-password').value.trim();
-  if (!email || !password) {
-    showError('Inserisci email e password.');
-    return;
-  }
   if (!state.lastAnalysis || !state.lastImages) {
     showError('Dati annuncio non trovati. Ricarica la pagina.');
     return;
@@ -369,27 +422,36 @@ async function confirmPublish() {
 
   const btn = document.getElementById('btn-publish-confirm');
   btn.disabled = true;
-  document.getElementById('publish-btn-text').textContent = 'Pubblicazione…';
+  document.getElementById('publish-btn-text').textContent =
+    'In corso… guarda la finestra del browser';
 
   const imageFilenames = Object.values(state.lastImages).filter(Boolean);
 
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (passwordRequired) headers['X-App-Password'] = getAppPassword();
     const res = await fetch(`/api/publish/${currentPlatform}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         analysis: state.lastAnalysis,
         image_filenames: imageFilenames,
-        email,
-        password,
       }),
     });
 
+    if (res.status === 401) {
+      handleUnauthorized();
+      throw new Error('Password dell\'app richiesta.');
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Errore sconosciuto');
 
     closePublishModal();
-    document.getElementById('success-msg').textContent = data.message || 'Annuncio pubblicato!';
+    let msg = data.message || 'Annuncio precompilato!';
+    if (data.mancanti && data.mancanti.length > 0) {
+      msg += ` Da compilare a mano: ${data.mancanti.join(', ')}.`;
+    }
+    document.getElementById('success-msg').textContent = msg;
     const link = document.getElementById('success-link');
     if (data.url) {
       link.href = data.url;
@@ -400,10 +462,10 @@ async function confirmPublish() {
     document.getElementById('success-toast').classList.remove('hidden');
     setTimeout(() => {
       document.getElementById('success-toast').classList.add('hidden');
-    }, 8000);
+    }, 15000);
   } catch (err) {
     btn.disabled = false;
-    document.getElementById('publish-btn-text').textContent = 'Pubblica ora';
+    document.getElementById('publish-btn-text').textContent = 'Apri e precompila';
     showError(`Errore pubblicazione: ${err.message}`);
   }
 }

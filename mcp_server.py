@@ -15,10 +15,13 @@ import base64
 import json
 import uuid
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 import openai
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+
+from services.image_service import generate_clothing_images
 
 load_dotenv()
 
@@ -115,26 +118,47 @@ Rispondi SOLO con il JSON, niente altro."""})
 def genera_immagini_moda(
     prompt_modella: str,
     prompt_sfondo_bianco: str,
+    percorsi_riferimento: list[str] | None = None,
 ) -> str:
     """
-    Genera 4 immagini professionali per un annuncio di moda usando DALL-E 3:
+    Genera 4 immagini professionali per un annuncio di moda con gpt-image-1:
     - 2 immagini con modella che indossa l'indumento (fronte + lifestyle)
     - 2 immagini prodotto su sfondo bianco (flat lay + appendiabiti)
+
+    IMPORTANTE: passa sempre percorsi_riferimento (le foto reali del capo) quando
+    disponibili — con le foto di riferimento l'indumento generato resta identico
+    all'originale (images.edit + input_fidelity=high). Senza, viene inventato dal testo.
 
     Args:
         prompt_modella: Descrizione in inglese dell'indumento per le foto con modella.
         prompt_sfondo_bianco: Descrizione in inglese per le foto prodotto su sfondo bianco.
+        percorsi_riferimento: Percorsi delle foto originali del capo (max 4, consigliato).
 
     Returns:
-        JSON string con i nomi dei file generati nella cartella 'generated/'.
+        JSON string con i percorsi dei file generati nella cartella 'generated/'.
     """
-    client = _client()
+    key = os.getenv("OPENAI_API_KEY", "")
+    if not key:
+        raise ValueError("OPENAI_API_KEY non impostata nel file .env")
 
+    if percorsi_riferimento:
+        # Massima fedeltà: foto reali come riferimento
+        filenames = generate_clothing_images(
+            reference_image_paths=percorsi_riferimento,
+            model_prompt=prompt_modella,
+            product_prompt=prompt_sfondo_bianco,
+            api_key=key,
+        )
+        result = {k: str(GENERATED_DIR / f) for k, f in filenames.items()}
+        return json.dumps(result, ensure_ascii=False)
+
+    # Fallback solo-testo (l'indumento è ricostruito dalla descrizione)
+    client = _client()
     prompts = {
         "model_front": (
             f"Professional fashion photography. A stylish model wearing {prompt_modella}. "
             f"Front view, standing straight, full body shot. Studio lighting, clean neutral "
-            f"background, high-end fashion magazine style, sharp focus, 4K quality."
+            f"background, high-end fashion magazine style, sharp focus."
         ),
         "model_lifestyle": (
             f"Professional fashion photography. A stylish model wearing {prompt_modella}. "
@@ -148,24 +172,23 @@ def genera_immagini_moda(
         ),
         "product_hanger": (
             f"Professional product photography. {prompt_sfondo_bianco}. "
-            f"Displayed on invisible hanger on pure white background, e-commerce style, "
+            f"Displayed on wooden hanger on pure white background, e-commerce style, "
             f"bright even lighting, slight soft shadow, front view."
         ),
     }
 
-    result: dict[str, str] = {}
-    for key, prompt in prompts.items():
+    def _one(item: tuple[str, str]) -> tuple[str, str]:
+        k, prompt = item
         resp = client.images.generate(
-            model="gpt-image-1",
-            prompt=prompt,
-            size="1024x1024",
-            quality="high",
-            n=1,
+            model="gpt-image-1", prompt=prompt,
+            size="1024x1024", quality="high", n=1,
         )
-        filename = f"{uuid.uuid4().hex}_{key}.png"
-        filepath = GENERATED_DIR / filename
-        filepath.write_bytes(base64.b64decode(resp.data[0].b64_json))
-        result[key] = str(filepath)
+        filename = f"{uuid.uuid4().hex}_{k}.png"
+        (GENERATED_DIR / filename).write_bytes(base64.b64decode(resp.data[0].b64_json))
+        return k, str(GENERATED_DIR / filename)
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        result = dict(ex.map(_one, prompts.items()))
 
     return json.dumps(result, ensure_ascii=False)
 
@@ -191,6 +214,7 @@ def crea_annuncio_completo(percorsi_immagini: list[str]) -> str:
     immagini_raw = genera_immagini_moda(
         prompt_modella=analisi.get("prompt_immagine_modella", ""),
         prompt_sfondo_bianco=analisi.get("prompt_sfondo_bianco", ""),
+        percorsi_riferimento=percorsi_immagini,
     )
 
     return json.dumps({
