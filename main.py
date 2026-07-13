@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 from functools import partial
 
+import openai
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
@@ -193,6 +194,18 @@ async def analyze(
     except HTTPException:
         _cleanup()
         raise
+    except openai.AuthenticationError:
+        _cleanup()
+        raise HTTPException(401, "Chiave OpenAI non valida o revocata. Controlla la API key.")
+    except openai.RateLimitError as e:
+        _cleanup()
+        if "insufficient_quota" in str(e):
+            raise HTTPException(
+                402,
+                "Credito OpenAI esaurito: chi gestisce l'app deve ricaricare su "
+                "platform.openai.com → Settings → Billing.",
+            )
+        raise HTTPException(429, "OpenAI è al limite di richieste: riprova tra qualche minuto.")
     except Exception:
         _cleanup()
         logger.exception("Errore durante l'elaborazione dell'annuncio")
