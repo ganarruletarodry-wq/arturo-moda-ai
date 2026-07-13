@@ -7,3 +7,4 @@ generated/
 venv/
 browser_profiles/
 .installed
+stats.json

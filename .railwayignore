@@ -7,3 +7,4 @@ generated/
 browser_profiles/
 .installed
 .claude/
+stats.json

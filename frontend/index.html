@@ -78,6 +78,50 @@
         </div>
       </section>
 
+      <!-- PANNELLO DI CONTROLLO (per il gestore dell'app) -->
+      <section class="card dashboard-card" id="section-dashboard">
+        <details id="dashboard-details">
+          <summary class="dashboard-summary">📊 Pannello di controllo <span class="dashboard-hint">crediti, spesa e statistiche</span></summary>
+          <div class="dashboard-body">
+
+            <div class="dash-row" id="dash-credit-row">
+              <span class="credit-badge" id="dash-credit">⚪ Credito: controllo…</span>
+              <span class="dash-note">Il saldo esatto è visibile solo su OpenAI (non è leggibile via API)</span>
+            </div>
+
+            <div class="stats-grid">
+              <div class="stat-tile">
+                <span class="stat-num" id="stat-oggi">–</span>
+                <span class="stat-label">Annunci oggi</span>
+              </div>
+              <div class="stat-tile">
+                <span class="stat-num" id="stat-30gg">–</span>
+                <span class="stat-label">Ultimi 30 giorni</span>
+              </div>
+              <div class="stat-tile">
+                <span class="stat-num" id="stat-totali">–</span>
+                <span class="stat-label">Annunci totali</span>
+              </div>
+              <div class="stat-tile">
+                <span class="stat-num" id="stat-spesa">–</span>
+                <span class="stat-label">Spesa stimata</span>
+              </div>
+            </div>
+
+            <div class="info-chips" id="dash-chips"></div>
+
+            <div class="quick-links">
+              <a href="https://platform.openai.com/settings/organization/billing/overview" target="_blank" rel="noopener">💳 Ricarica credito OpenAI</a>
+              <a href="https://platform.openai.com/usage" target="_blank" rel="noopener">📈 Consumi OpenAI</a>
+              <a href="#" target="_blank" rel="noopener" id="dash-railway-link" class="hidden">🚂 Server Railway</a>
+              <button class="btn btn-outline btn-small" onclick="loadStats(true)">↻ Aggiorna</button>
+            </div>
+
+            <p class="dash-note" id="dash-since"></p>
+          </div>
+        </details>
+      </section>
+
       <!-- STEP 2: LOADING -->
       <section class="card hidden" id="section-loading">
         <div class="loading-center">

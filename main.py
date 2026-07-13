@@ -1,9 +1,12 @@
 import os
 import time
 import uuid
+import json
 import asyncio
 import logging
 import secrets
+import threading
+from datetime import date, datetime, timezone
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -46,7 +49,7 @@ REQUIRE_CLIENT_KEY = os.getenv("REQUIRE_CLIENT_KEY", "false").lower() == "true"
 # Se impostata, le operazioni costose (analisi/pubblicazione) richiedono
 # questa password: da usare quando l'app è esposta online.
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
-PROTECTED_PATHS = ("/api/analyze", "/api/publish")
+PROTECTED_PATHS = ("/api/analyze", "/api/publish", "/api/stats")
 
 # Massimo di annunci generabili per IP ogni ora (protezione costi API).
 # 0 = nessun limite. Ogni annuncio costa ~€0.80 di API OpenAI.
@@ -55,6 +58,69 @@ _rate_windows: dict[str, deque] = defaultdict(deque)
 
 GENERATED_MAX_AGE_DAYS = int(os.getenv("GENERATED_MAX_AGE_DAYS", "14"))
 CLEANUP_INTERVAL_S = 6 * 3600  # pulizia file vecchi ogni 6 ore
+
+# ---------------------------------------------------------------------------
+# Statistiche uso (per il pannello di controllo): annunci, immagini, spesa
+# stimata. Su Railway il filesystem è effimero: i contatori ripartono a ogni
+# nuovo deploy — la data "da" nel pannello lo rende esplicito.
+# ---------------------------------------------------------------------------
+STATS_FILE = BASE_DIR / "stats.json"
+_stats_lock = threading.Lock()
+
+IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "high")
+# Stime in EUR (vedi tabella costi in CLAUDE.md)
+COST_PER_IMAGE_EUR = {"low": 0.03, "medium": 0.07, "high": 0.19}
+COST_ANALYSIS_EUR = 0.02
+
+
+def _empty_stats() -> dict:
+    return {
+        "da": date.today().isoformat(),
+        "giorni": {},               # "YYYY-MM-DD" -> n. annunci
+        "annunci_totali": 0,
+        "immagini_totali": 0,
+        "spesa_stimata_eur": 0.0,
+        "credito_openai": "sconosciuto",  # ok | esaurito | sconosciuto
+        "ultimo_annuncio": None,
+    }
+
+
+def _load_stats() -> dict:
+    try:
+        return {**_empty_stats(), **json.loads(STATS_FILE.read_text(encoding="utf-8"))}
+    except Exception:
+        return _empty_stats()
+
+
+def _save_stats(stats: dict) -> None:
+    try:
+        STATS_FILE.write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        logger.warning("Impossibile salvare stats.json")
+
+
+def _record_annuncio(n_images: int) -> None:
+    with _stats_lock:
+        stats = _load_stats()
+        today = date.today().isoformat()
+        stats["giorni"][today] = stats["giorni"].get(today, 0) + 1
+        # tieni solo gli ultimi 30 giorni
+        stats["giorni"] = dict(sorted(stats["giorni"].items())[-30:])
+        stats["annunci_totali"] += 1
+        stats["immagini_totali"] += n_images
+        stats["spesa_stimata_eur"] += (
+            COST_ANALYSIS_EUR + n_images * COST_PER_IMAGE_EUR.get(IMAGE_QUALITY, 0.19)
+        )
+        stats["credito_openai"] = "ok"
+        stats["ultimo_annuncio"] = datetime.now(timezone.utc).isoformat()
+        _save_stats(stats)
+
+
+def _record_credito_esaurito() -> None:
+    with _stats_lock:
+        stats = _load_stats()
+        stats["credito_openai"] = "esaurito"
+        _save_stats(stats)
 
 
 def _cleanup_old_files() -> None:
@@ -200,6 +266,7 @@ async def analyze(
     except openai.RateLimitError as e:
         _cleanup()
         if "insufficient_quota" in str(e):
+            _record_credito_esaurito()
             raise HTTPException(
                 402,
                 "Credito OpenAI esaurito: chi gestisce l'app deve ricaricare su "
@@ -212,6 +279,7 @@ async def analyze(
         raise HTTPException(500, "Errore durante l'elaborazione. Riprova; se persiste controlla i log del server.")
 
     _cleanup()
+    _record_annuncio(len(images))
 
     if not images:
         # Analisi ok ma nessuna immagine: restituiamo comunque i testi,
@@ -300,12 +368,35 @@ async def publish_catawiki(req: PublishRequest):
     return await _run_publish(pubblica_su_catawiki, req)
 
 
-APP_VERSION = "1.4-online-ready"
+APP_VERSION = "1.5-dashboard"
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": APP_VERSION}
+
+
+@app.get("/api/stats")
+async def get_stats():
+    stats = _load_stats()
+    today = date.today().isoformat()
+    railway_project = os.getenv("RAILWAY_PROJECT_ID", "")
+    return {
+        "annunci_oggi": stats["giorni"].get(today, 0),
+        "annunci_30gg": sum(stats["giorni"].values()),
+        "annunci_totali": stats["annunci_totali"],
+        "immagini_totali": stats["immagini_totali"],
+        "spesa_stimata_eur": round(stats["spesa_stimata_eur"], 2),
+        "credito_openai": stats["credito_openai"],
+        "ultimo_annuncio": stats["ultimo_annuncio"],
+        "da": stats["da"],
+        "qualita_immagini": IMAGE_QUALITY,
+        "rate_limit_ora": RATE_LIMIT_PER_HOUR,
+        "versione": APP_VERSION,
+        "railway_url": (
+            f"https://railway.com/project/{railway_project}" if railway_project else None
+        ),
+    }
 
 
 @app.get("/api/config")

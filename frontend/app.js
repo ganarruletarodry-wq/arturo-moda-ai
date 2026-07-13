@@ -495,6 +495,75 @@ document.getElementById('publish-modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('publish-modal')) closePublishModal();
 });
 
+// ---- PANNELLO DI CONTROLLO ----
+let statsLoaded = false;
+
+document.getElementById('dashboard-details').addEventListener('toggle', (e) => {
+  if (e.target.open && !statsLoaded) loadStats();
+});
+
+async function loadStats(force = false) {
+  if (statsLoaded && !force) return;
+  try {
+    const headers = passwordRequired ? { 'X-App-Password': getAppPassword() } : {};
+    const res = await fetch('/api/stats', { headers });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    const s = await res.json();
+    statsLoaded = true;
+
+    document.getElementById('stat-oggi').textContent = s.annunci_oggi;
+    document.getElementById('stat-30gg').textContent = s.annunci_30gg;
+    document.getElementById('stat-totali').textContent = s.annunci_totali;
+    document.getElementById('stat-spesa').textContent = `~€${(s.spesa_stimata_eur || 0).toFixed(2)}`;
+
+    const badge = document.getElementById('dash-credit');
+    badge.classList.remove('credit-ok', 'credit-ko');
+    if (s.credito_openai === 'ok') {
+      badge.textContent = '🟢 Credito OpenAI: attivo (ultimo annuncio riuscito)';
+      badge.classList.add('credit-ok');
+    } else if (s.credito_openai === 'esaurito') {
+      badge.textContent = '🔴 Credito OpenAI: ESAURITO — ricarica dal link qui sotto';
+      badge.classList.add('credit-ko');
+    } else {
+      badge.textContent = '⚪ Credito OpenAI: sconosciuto (nessun annuncio ancora generato)';
+    }
+
+    const chips = document.getElementById('dash-chips');
+    chips.innerHTML = '';
+    const qualityLabel = s.qualita_immagini === 'high' ? 'Qualità: massima (~€0,80/annuncio)' : `Qualità: ${s.qualita_immagini} (~€0,30/annuncio)`;
+    const items = [
+      qualityLabel,
+      s.rate_limit_ora > 0 ? `Limite: ${s.rate_limit_ora} annunci/ora a persona` : 'Nessun limite orario',
+      `${s.immagini_totali} immagini generate`,
+      `Versione ${s.versione}`,
+    ];
+    items.forEach((txt) => {
+      const c = document.createElement('span');
+      c.className = 'chip';
+      c.textContent = txt;
+      chips.appendChild(c);
+    });
+
+    const rw = document.getElementById('dash-railway-link');
+    if (s.railway_url) {
+      rw.href = s.railway_url;
+      rw.classList.remove('hidden');
+    }
+
+    let since = `Statistiche dal ${s.da}`;
+    if (s.ultimo_annuncio) {
+      since += ` · ultimo annuncio: ${new Date(s.ultimo_annuncio).toLocaleString('it-IT')}`;
+    }
+    since += ' · la spesa è una stima, il valore esatto è su "Consumi OpenAI"';
+    document.getElementById('dash-since').textContent = since;
+  } catch (_) {
+    showError('Impossibile caricare le statistiche.');
+  }
+}
+
 // ---- ERRORI ----
 function showError(msg) {
   document.getElementById('error-msg').textContent = msg;
