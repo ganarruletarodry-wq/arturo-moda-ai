@@ -40,6 +40,25 @@ In alternativa crea un file `.env` nella cartella con dentro:
    si apre una finestra Chrome, la prima volta fai il login tu (resta
    memorizzato), l'app compila l'annuncio e **tu controlli e pubblichi**
 
+## Metti Arturo online (per condividerlo con un link)
+
+Il progetto è già pronto per [Railway](https://railway.app) (c'è `railway.toml`)
+o qualsiasi host che legga il `Procfile` (Render, Heroku...):
+
+1. Carica il repository su GitHub e collegalo a Railway (New Project → Deploy from GitHub)
+2. Nelle **Variables** del servizio imposta:
+   - `OPENAI_API_KEY` = la tua chiave (sarà usata da chi apre il link)
+   - `APP_PASSWORD` = una password a tua scelta — **importante**: senza,
+     chiunque trovi il link genera annunci a tue spese
+   - (opzionale) `RATE_LIMIT_PER_HOUR` = max annunci per persona/ora (default 12)
+   - (opzionale) `IMAGE_QUALITY=medium` per dimezzare i costi
+3. Manda al tuo amico il link **e la password**: alla prima analisi
+   gliela chiede e poi la ricorda nel suo browser
+
+Online funzionano analisi, testi, misure e le 4 immagini (copia/scarica).
+I bottoni "Pubblica su Vinted/Catawiki" compaiono solo quando l'app gira
+sul PC (devono aprire una finestra del browser).
+
 ## Note
 
 - La pubblicazione automatica funziona solo con l'app installata sul PC

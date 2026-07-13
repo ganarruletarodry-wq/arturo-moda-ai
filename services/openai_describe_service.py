@@ -74,14 +74,21 @@ def analyze_clothing(image_paths: list[str], api_key: str) -> dict:
         })
     content.append({"type": "text", "text": ANALYSIS_PROMPT})
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        max_tokens=3000,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": content},
-        ],
-    )
-
-    return json.loads(response.choices[0].message.content)
+    # Un retry: se il JSON arriva troncato o malformato, ritentare costa
+    # centesimi contro il fallimento dell'intero annuncio.
+    last_error: Exception | None = None
+    for _ in range(2):
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=4096,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": content},
+            ],
+        )
+        try:
+            return json.loads(response.choices[0].message.content)
+        except (json.JSONDecodeError, TypeError) as e:
+            last_error = e
+    raise ValueError(f"GPT-4o non ha restituito un JSON valido: {last_error}")

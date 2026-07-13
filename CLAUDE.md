@@ -31,7 +31,7 @@ ARTURO/
 │   ├── style.css                    # Design
 │   └── app.js                       # Logica frontend
 ├── uploads/                         # Foto caricate (temporanee, auto-cancellate)
-├── generated/                       # Immagini generate da DALL-E 3
+├── generated/                       # Immagini generate da gpt-image-1
 ├── .env                             # API key reale (NON committare)
 ├── .env.example                     # Template variabili ambiente
 ├── requirements.txt
@@ -49,6 +49,7 @@ REQUIRE_CLIENT_KEY=true        # opzionale: su server pubblico, ogni utente usa 
 APP_PASSWORD=...               # opzionale: protegge analisi/pubblicazione (consigliata online)
 PLAYWRIGHT_HEADLESS=true       # opzionale: obbligatorio su server senza display
 GENERATED_MAX_AGE_DAYS=14      # opzionale: pulizia automatica immagini generate
+RATE_LIMIT_PER_HOUR=12         # opzionale: max annunci per IP/ora (0 = illimitato)
 ```
 
 ## Avvio app web
@@ -103,6 +104,9 @@ Oppure per Claude Desktop, in `claude_desktop_config.json`:
 }
 ```
 
+I percorsi (`.env`, `generated/`) sono ancorati alla cartella del progetto,
+quindi il server funziona anche se lanciato da un'altra working directory.
+
 ## Strumenti MCP disponibili
 
 ### `analizza_indumento`
@@ -139,9 +143,9 @@ Output: str — risposta del modello
 ```
 
 ### `genera_immagine`
-Genera una singola immagine con DALL-E 3.
+Genera una singola immagine con gpt-image-1.
 ```
-Input:  prompt: str, dimensioni: str = "1024x1024", qualita: str = "standard"
+Input:  prompt: str, dimensioni: str = "1024x1024", qualita: str = "high"
 Output: str — percorso del file PNG generato
 ```
 
@@ -155,7 +159,7 @@ Output: JSON array di ID modelli
 
 | Metodo | Path | Descrizione |
 |--------|------|-------------|
-| POST | `/api/analyze` | Analisi + generazione immagini |
+| POST | `/api/analyze` | Analisi + generazione immagini (risposta include `image_errors` per le immagini eventualmente fallite; rate limit per IP configurabile) |
 | GET | `/api/image/{filename}` | Visualizza immagine generata |
 | GET | `/api/download/{filename}` | Scarica immagine generata |
 | POST | `/api/publish/vinted` | Precompila l'annuncio su Vinted in un browser visibile; l'utente controlla e pubblica (solo locale) |
@@ -179,7 +183,7 @@ Foto utente → uploads/ (temporaneo)
      ↓
 GPT-4o Vision → JSON analisi indumento
      ↓
-DALL-E 3 × 4 → generated/*.png
+gpt-image-1 × 4 → generated/*.png (errori isolati per immagine + 1 retry)
      ↓
 Frontend mostra risultati (copia/scarica)
      ↓

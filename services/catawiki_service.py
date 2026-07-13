@@ -22,7 +22,8 @@ CONDIZIONE_MAP = {
     "Discreto": "Fair",
 }
 
-PROFILE_DIR = Path("browser_profiles") / "catawiki"
+BASE_DIR = Path(__file__).resolve().parent.parent
+PROFILE_DIR = BASE_DIR / "browser_profiles" / "catawiki"
 LOGIN_TIMEOUT_S = 300  # 5 minuti per completare il login manuale
 
 # Il browser resta aperto dopo la risposta HTTP: è l'utente a inviare il lotto.
@@ -80,14 +81,12 @@ async def _continue(page) -> bool:
 async def pubblica_su_catawiki(
     analysis: dict,
     image_filenames: list[str],
-    email: str = "",
-    password: str = "",
-    generated_dir: str = "generated",
 ) -> dict:
+    generated_dir = BASE_DIR / "generated"
     image_paths = [
-        str(Path(generated_dir) / f)
+        str(generated_dir / f)
         for f in image_filenames
-        if (Path(generated_dir) / f).exists()
+        if (generated_dir / f).exists()
     ]
 
     await _close_previous()

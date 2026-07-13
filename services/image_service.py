@@ -3,12 +3,20 @@ import openai
 import base64
 import uuid
 import io
+import logging
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 
 
-GENERATED_DIR = Path("generated")
+logger = logging.getLogger("arturo.images")
+
+# Ancorato alla cartella del progetto, non alla working directory:
+# così funziona anche quando il processo è avviato da un'altra cartella
+# (es. MCP server lanciato da Claude Desktop).
+BASE_DIR = Path(__file__).resolve().parent.parent
+GENERATED_DIR = BASE_DIR / "generated"
+GENERATED_DIR.mkdir(exist_ok=True)
 
 # Lato massimo delle foto di riferimento inviate a gpt-image-1
 MAX_REF_PX = 1536
@@ -16,6 +24,10 @@ MAX_REF_PX = 1536
 # high = massima fedeltà all'indumento (default). Impostare IMAGE_QUALITY=medium
 # per risparmiare (~1/3 del costo) accettando meno dettaglio.
 IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "high")
+
+# Un tentativo extra per immagine: gli errori transitori dell'API sono comuni
+# e rigenerare una sola immagine costa molto meno che rifare tutto l'annuncio.
+MAX_ATTEMPTS = 2
 
 
 def _to_jpeg_bytes(image_path: str) -> bytes:
@@ -66,26 +78,33 @@ def _product_prompt(description: str, style: str) -> str:
 
 
 def _generate_single(
-    api_key: str, key: str, prompt: str, refs: list[bytes]
-) -> tuple[str, str]:
-    client = openai.OpenAI(api_key=api_key)
-    images = [
-        (f"reference_{i}.jpg", io.BytesIO(data), "image/jpeg")
-        for i, data in enumerate(refs)
-    ]
-    response = client.images.edit(
-        model="gpt-image-1",
-        image=images if len(images) > 1 else images[0],
-        prompt=prompt,
-        size="1024x1024",
-        quality=IMAGE_QUALITY,
-        input_fidelity="high",  # preserva colori, stampe, loghi e tessuto del capo
-        n=1,
-    )
-    filename = f"{uuid.uuid4().hex}_{key}.png"
-    filepath = GENERATED_DIR / filename
-    filepath.write_bytes(base64.b64decode(response.data[0].b64_json))
-    return key, filename
+    client: openai.OpenAI, key: str, prompt: str, refs: list[bytes]
+) -> str:
+    last_error: Exception | None = None
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            images = [
+                (f"reference_{i}.jpg", io.BytesIO(data), "image/jpeg")
+                for i, data in enumerate(refs)
+            ]
+            response = client.images.edit(
+                model="gpt-image-1",
+                image=images if len(images) > 1 else images[0],
+                prompt=prompt,
+                size="1024x1024",
+                quality=IMAGE_QUALITY,
+                input_fidelity="high",  # preserva colori, stampe, loghi e tessuto del capo
+                n=1,
+            )
+            filename = f"{uuid.uuid4().hex}_{key}.png"
+            (GENERATED_DIR / filename).write_bytes(
+                base64.b64decode(response.data[0].b64_json)
+            )
+            return filename
+        except Exception as e:
+            last_error = e
+            logger.warning("Immagine %s, tentativo %d fallito: %s", key, attempt + 1, e)
+    raise last_error
 
 
 def generate_clothing_images(
@@ -93,14 +112,21 @@ def generate_clothing_images(
     model_prompt: str,
     product_prompt: str,
     api_key: str,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], dict[str, str]]:
     """
     Genera 4 immagini professionali in parallelo usando:
     - TUTTE le foto originali come riferimento visivo (images.edit, max 4)
     - input_fidelity="high" per mantenere l'indumento identico all'originale
     - La descrizione dettagliata di GPT-4o nel prompt testuale
+
+    Ogni immagine è indipendente: se una fallisce (dopo un retry) le altre
+    vengono comunque restituite, così l'utente non perde ciò che ha già pagato.
+
+    Returns:
+        (immagini, errori): due dict chiave → nome file / chiave → messaggio errore.
     """
     refs = [_to_jpeg_bytes(p) for p in reference_image_paths[:4]]
+    client = openai.OpenAI(api_key=api_key)  # thread-safe, condiviso dai worker
 
     prompts = {
         "model_front":     _model_prompt(model_prompt, "front"),
@@ -109,14 +135,18 @@ def generate_clothing_images(
         "product_hanger":  _product_prompt(product_prompt, "hanger"),
     }
 
-    result: dict[str, str] = {}
+    images: dict[str, str] = {}
+    errors: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
-            executor.submit(_generate_single, api_key, key, prompt, refs): key
+            key: executor.submit(_generate_single, client, key, prompt, refs)
             for key, prompt in prompts.items()
         }
-        for future in as_completed(futures):
-            key, filename = future.result()
-            result[key] = filename
+        for key, future in futures.items():
+            try:
+                images[key] = future.result()
+            except Exception as e:
+                errors[key] = str(e)[:300]
+                logger.error("Immagine %s non generata: %s", key, e)
 
-    return result
+    return images, errors

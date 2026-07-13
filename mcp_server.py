@@ -3,10 +3,10 @@ Arturo MCP Server — espone le funzionalità OpenAI come strumenti per Claude.
 
 Strumenti disponibili:
   • analizza_indumento      — GPT-4o Vision: analizza foto di un indumento
-  • genera_immagini_moda    — DALL-E 3: genera immagini prodotto (modella + sfondo bianco)
+  • genera_immagini_moda    — gpt-image-1: genera immagini prodotto (modella + sfondo bianco)
   • crea_annuncio_completo  — pipeline completa: analisi + 4 immagini
   • chat                    — chat generica con GPT-4o
-  • genera_immagine         — genera una singola immagine con DALL-E 3
+  • genera_immagine         — genera una singola immagine con gpt-image-1
   • lista_modelli           — elenca i modelli OpenAI disponibili
 """
 
@@ -21,12 +21,16 @@ import openai
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
-from services.image_service import generate_clothing_images
+# Percorsi ancorati alla cartella del progetto: il server MCP può essere
+# lanciato da Claude Desktop con una working directory qualsiasi.
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
-load_dotenv()
+from services.image_service import generate_clothing_images
+from services.openai_describe_service import analyze_clothing
 
 mcp = FastMCP("arturo-openai")
-GENERATED_DIR = Path("generated")
+GENERATED_DIR = BASE_DIR / "generated"
 GENERATED_DIR.mkdir(exist_ok=True)
 
 
@@ -37,15 +41,11 @@ def _client() -> openai.OpenAI:
     return openai.OpenAI(api_key=key)
 
 
-def _encode_image(path: str) -> tuple[str, str]:
-    p = Path(path)
-    media_types = {
-        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".png": "image/png", ".webp": "image/webp",
-    }
-    mt = media_types.get(p.suffix.lower(), "image/jpeg")
-    data = base64.standard_b64encode(p.read_bytes()).decode()
-    return data, mt
+def _require_key() -> str:
+    key = os.getenv("OPENAI_API_KEY", "")
+    if not key:
+        raise ValueError("OPENAI_API_KEY non impostata nel file .env")
+    return key
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +55,9 @@ def _encode_image(path: str) -> tuple[str, str]:
 def analizza_indumento(percorsi_immagini: list[str]) -> str:
     """
     Analizza le foto di un indumento e restituisce un JSON con titolo, categoria,
-    genere, colori, materiale, taglia, brand, condizione, descrizioni per Vinted
-    e Catawiki, hashtag, prezzo suggerito e prompt per DALL-E.
+    genere, colori, materiale, taglia, brand, condizione, misure stimate,
+    descrizioni per Vinted e Catawiki, hashtag, prezzo suggerito e prompt
+    per gpt-image-1.
 
     Args:
         percorsi_immagini: Lista di percorsi file immagine (max 4).
@@ -65,54 +66,12 @@ def analizza_indumento(percorsi_immagini: list[str]) -> str:
     Returns:
         JSON string con tutti i campi dell'annuncio.
     """
-    client = _client()
-    content: list[dict] = []
-
-    for path in percorsi_immagini[:4]:
-        data, mt = _encode_image(path)
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:{mt};base64,{data}", "detail": "high"},
-        })
-
-    content.append({"type": "text", "text": """Analizza questo indumento e rispondi con JSON:
-{
-  "titolo": "Titolo max 60 caratteri",
-  "categoria": "es. Maglione, Jeans, Vestito...",
-  "genere": "Uomo / Donna / Unisex / Bambino",
-  "colori": ["colore1"],
-  "materiale": "materiale o ''",
-  "taglia": "taglia o ''",
-  "brand": "brand o ''",
-  "condizione": "Nuovo con etichetta / Ottimo / Buono / Discreto",
-  "descrizione_vinted": "max 300 parole, tono giovane, con emoji",
-  "descrizione_catawiki": "max 400 parole, formale e dettagliata",
-  "hashtag": ["#tag1","#tag2","#tag3","#tag4","#tag5"],
-  "prezzo_suggerito_min": 0,
-  "prezzo_suggerito_max": 0,
-  "prompt_immagine_modella": "English prompt for gpt-image-1 showing model wearing item",
-  "prompt_sfondo_bianco": "English prompt for gpt-image-1 product shot on white background"
-}
-Rispondi SOLO con il JSON, niente altro."""})
-
-    resp = client.chat.completions.create(
-        model="gpt-4o",
-        max_tokens=2048,
-        messages=[
-            {"role": "system", "content": "Sei un esperto di moda e vendita online. Rispondi solo con JSON valido."},
-            {"role": "user", "content": content},
-        ],
-    )
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return raw.strip()
+    analisi = analyze_clothing(percorsi_immagini, _require_key())
+    return json.dumps(analisi, ensure_ascii=False, indent=2)
 
 
 # ---------------------------------------------------------------------------
-# TOOL 2 — Genera immagini moda con DALL-E 3
+# TOOL 2 — Genera immagini moda con gpt-image-1
 # ---------------------------------------------------------------------------
 @mcp.tool()
 def genera_immagini_moda(
@@ -135,21 +94,22 @@ def genera_immagini_moda(
         percorsi_riferimento: Percorsi delle foto originali del capo (max 4, consigliato).
 
     Returns:
-        JSON string con i percorsi dei file generati nella cartella 'generated/'.
+        JSON string con i percorsi dei file generati nella cartella 'generated/'
+        e gli eventuali errori per immagine.
     """
-    key = os.getenv("OPENAI_API_KEY", "")
-    if not key:
-        raise ValueError("OPENAI_API_KEY non impostata nel file .env")
+    key = _require_key()
 
     if percorsi_riferimento:
         # Massima fedeltà: foto reali come riferimento
-        filenames = generate_clothing_images(
+        filenames, errors = generate_clothing_images(
             reference_image_paths=percorsi_riferimento,
             model_prompt=prompt_modella,
             product_prompt=prompt_sfondo_bianco,
             api_key=key,
         )
         result = {k: str(GENERATED_DIR / f) for k, f in filenames.items()}
+        if errors:
+            result["errori"] = errors
         return json.dumps(result, ensure_ascii=False)
 
     # Fallback solo-testo (l'indumento è ricostruito dalla descrizione)
@@ -200,7 +160,7 @@ def genera_immagini_moda(
 def crea_annuncio_completo(percorsi_immagini: list[str]) -> str:
     """
     Pipeline completa: analizza le foto dell'indumento con GPT-4o e genera
-    automaticamente le 4 immagini professionali con DALL-E 3.
+    automaticamente le 4 immagini professionali con gpt-image-1.
 
     Args:
         percorsi_immagini: Lista di percorsi file immagine dell'indumento (max 4).
@@ -208,8 +168,7 @@ def crea_annuncio_completo(percorsi_immagini: list[str]) -> str:
     Returns:
         JSON string con 'analisi' (tutti i dati dell'annuncio) e 'immagini' (percorsi file).
     """
-    analisi_raw = analizza_indumento(percorsi_immagini)
-    analisi = json.loads(analisi_raw)
+    analisi = analyze_clothing(percorsi_immagini, _require_key())
 
     immagini_raw = genera_immagini_moda(
         prompt_modella=analisi.get("prompt_immagine_modella", ""),

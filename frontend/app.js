@@ -268,7 +268,14 @@ function showResults(data) {
     if (misure[key] && misure[key] !== 'null') {
       hasMisure = true;
       const li = document.createElement('li');
-      li.innerHTML = `<span class="misure-key">${label}:</span><span class="misure-val">${misure[key]}</span>`;
+      const k = document.createElement('span');
+      k.className = 'misure-key';
+      k.textContent = `${label}:`;
+      const v = document.createElement('span');
+      v.className = 'misure-val';
+      v.textContent = misure[key];
+      li.appendChild(k);
+      li.appendChild(v);
       lista.appendChild(li);
     }
   }
@@ -305,6 +312,19 @@ function showResults(data) {
   ['product_flat', 'product_hanger'].forEach((key) => {
     if (images[key]) productRow.appendChild(buildImageCard(images[key]));
   });
+
+  // Se qualche immagine non è stata generata, avvisa (le altre restano valide)
+  const IMG_LABELS = {
+    model_front: 'Modella (fronte)',
+    model_lifestyle: 'Modella (lifestyle)',
+    product_flat: 'Prodotto steso',
+    product_hanger: 'Prodotto appeso',
+  };
+  const failed = Object.keys(data.image_errors || {});
+  if (failed.length > 0) {
+    const names = failed.map((k) => IMG_LABELS[k] || k).join(', ');
+    showError(`Alcune immagini non sono state generate (${names}). I testi e le altre immagini sono comunque pronti.`);
+  }
 
   // Salva stato per pubblicazione + persistenza per riaprire senza rigenerare
   state.lastAnalysis = a;

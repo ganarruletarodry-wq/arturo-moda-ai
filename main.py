@@ -3,15 +3,23 @@ import time
 import uuid
 import asyncio
 import logging
+import secrets
+from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 from functools import partial
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
+
+# Percorsi ancorati alla cartella del progetto, non alla working directory
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 from services.openai_describe_service import analyze_clothing
 from services.image_service import generate_clothing_images
@@ -19,14 +27,11 @@ from services.vinted_service import pubblica_su_vinted
 from services.catawiki_service import pubblica_su_catawiki
 from services.pw_runner import esegui
 
-load_dotenv()
-
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("arturo")
 
-app = FastAPI(title="Arturo - Annunci Moda AI")
-
-UPLOADS_DIR = Path("uploads")
-GENERATED_DIR = Path("generated")
+UPLOADS_DIR = BASE_DIR / "uploads"
+GENERATED_DIR = BASE_DIR / "generated"
 UPLOADS_DIR.mkdir(exist_ok=True)
 GENERATED_DIR.mkdir(exist_ok=True)
 
@@ -42,21 +47,16 @@ REQUIRE_CLIENT_KEY = os.getenv("REQUIRE_CLIENT_KEY", "false").lower() == "true"
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 PROTECTED_PATHS = ("/api/analyze", "/api/publish")
 
-
-@app.middleware("http")
-async def check_app_password(request, call_next):
-    if APP_PASSWORD and request.url.path.startswith(PROTECTED_PATHS):
-        if request.headers.get("x-app-password", "") != APP_PASSWORD:
-            return JSONResponse(
-                {"detail": "Password dell'app errata o mancante"}, status_code=401
-            )
-    return await call_next(request)
+# Massimo di annunci generabili per IP ogni ora (protezione costi API).
+# 0 = nessun limite. Ogni annuncio costa ~€0.80 di API OpenAI.
+RATE_LIMIT_PER_HOUR = int(os.getenv("RATE_LIMIT_PER_HOUR", "12"))
+_rate_windows: dict[str, deque] = defaultdict(deque)
 
 GENERATED_MAX_AGE_DAYS = int(os.getenv("GENERATED_MAX_AGE_DAYS", "14"))
+CLEANUP_INTERVAL_S = 6 * 3600  # pulizia file vecchi ogni 6 ore
 
 
-@app.on_event("startup")
-async def cleanup_old_files():
+def _cleanup_old_files() -> None:
     cutoff = time.time() - GENERATED_MAX_AGE_DAYS * 86400
     for folder in (GENERATED_DIR, UPLOADS_DIR):
         for f in folder.glob("*"):
@@ -65,6 +65,65 @@ async def cleanup_old_files():
                     f.unlink()
             except OSError:
                 pass
+
+
+async def _cleanup_loop() -> None:
+    while True:
+        _cleanup_old_files()
+        await asyncio.sleep(CLEANUP_INTERVAL_S)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if os.getenv("OPENAI_API_KEY") and not REQUIRE_CLIENT_KEY and not APP_PASSWORD:
+        logger.warning(
+            "ATTENZIONE: il server ha la chiave OpenAI ma nessuna APP_PASSWORD. "
+            "Se l'app è esposta online, chiunque può generare annunci a tue spese. "
+            "Imposta APP_PASSWORD nel .env (o REQUIRE_CLIENT_KEY=true)."
+        )
+    cleanup_task = asyncio.create_task(_cleanup_loop())
+    yield
+    cleanup_task.cancel()
+
+
+app = FastAPI(title="Arturo - Annunci Moda AI", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+@app.middleware("http")
+async def check_app_password(request, call_next):
+    if APP_PASSWORD and request.url.path.startswith(PROTECTED_PATHS):
+        provided = request.headers.get("x-app-password", "")
+        if not secrets.compare_digest(provided, APP_PASSWORD):
+            return JSONResponse(
+                {"detail": "Password dell'app errata o mancante"}, status_code=401
+            )
+    return await call_next(request)
+
+
+def _client_ip(request: Request) -> str:
+    # Dietro un proxy (Railway, Render...) l'IP reale è nel primo X-Forwarded-For
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate_limit(request: Request) -> None:
+    if RATE_LIMIT_PER_HOUR <= 0:
+        return
+    ip = _client_ip(request)
+    now = time.monotonic()
+    window = _rate_windows[ip]
+    while window and now - window[0] > 3600:
+        window.popleft()
+    if len(window) >= RATE_LIMIT_PER_HOUR:
+        raise HTTPException(
+            429,
+            "Hai raggiunto il limite di annunci per quest'ora. "
+            "Riprova più tardi (il limite protegge dai costi API).",
+        )
+    window.append(now)
 
 
 def get_openai_key(form_key: Optional[str]) -> str:
@@ -81,6 +140,7 @@ def get_openai_key(form_key: Optional[str]) -> str:
 
 @app.post("/api/analyze")
 async def analyze(
+    request: Request,
     files: list[UploadFile] = File(...),
     openai_key: Optional[str] = Form(None),
 ):
@@ -89,6 +149,7 @@ async def analyze(
     if len(files) > 4:
         raise HTTPException(400, "Massimo 4 foto")
 
+    _check_rate_limit(request)
     oai_key = get_openai_key(openai_key)
 
     session_id = uuid.uuid4().hex
@@ -119,7 +180,7 @@ async def analyze(
 
         # Generazione 4 immagini in parallelo: TUTTE le foto originali come
         # riferimento visivo + descrizione GPT-4o nel prompt
-        images = await loop.run_in_executor(
+        images, image_errors = await loop.run_in_executor(
             None,
             partial(
                 generate_clothing_images,
@@ -138,7 +199,22 @@ async def analyze(
         raise HTTPException(500, "Errore durante l'elaborazione. Riprova; se persiste controlla i log del server.")
 
     _cleanup()
-    return JSONResponse({"success": True, "analysis": analysis, "images": images})
+
+    if not images:
+        # Analisi ok ma nessuna immagine: restituiamo comunque i testi,
+        # che da soli valgono già l'annuncio.
+        logger.error("Nessuna immagine generata: %s", image_errors)
+
+    return JSONResponse({
+        "success": True,
+        "analysis": analysis,
+        "images": images,
+        "image_errors": image_errors,
+    })
+
+
+# I nomi file sono UUID univoci: il contenuto non cambia mai → cache lunga
+IMAGE_CACHE_HEADERS = {"Cache-Control": "public, max-age=86400, immutable"}
 
 
 @app.get("/api/image/{filename}")
@@ -147,7 +223,7 @@ async def get_image(filename: str):
     filepath = GENERATED_DIR / safe_name
     if not filepath.exists():
         raise HTTPException(404, "Immagine non trovata")
-    return FileResponse(str(filepath), media_type="image/png")
+    return FileResponse(str(filepath), media_type="image/png", headers=IMAGE_CACHE_HEADERS)
 
 
 @app.get("/api/download/{filename}")
@@ -171,6 +247,8 @@ class PublishRequest(BaseModel):
 def _has_display() -> bool:
     # La pubblicazione apre un browser visibile: possibile solo dove c'è uno
     # schermo (PC dell'utente), non su un server remoto.
+    if os.getenv("PLAYWRIGHT_HEADLESS", "").lower() == "true":
+        return False
     return os.name == "nt" or bool(os.getenv("DISPLAY"))
 
 
@@ -209,7 +287,7 @@ async def publish_catawiki(req: PublishRequest):
     return await _run_publish(pubblica_su_catawiki, req)
 
 
-APP_VERSION = "1.3-catawiki-wizard"
+APP_VERSION = "1.4-online-ready"
 
 
 @app.get("/health")
@@ -227,4 +305,4 @@ async def config():
     }
 
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+app.mount("/", StaticFiles(directory=str(BASE_DIR / "frontend"), html=True), name="frontend")

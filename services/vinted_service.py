@@ -22,7 +22,8 @@ CONDIZIONE_MAP = {
     "Discreto": "satisfactory",
 }
 
-PROFILE_DIR = Path("browser_profiles") / "vinted"
+BASE_DIR = Path(__file__).resolve().parent.parent
+PROFILE_DIR = BASE_DIR / "browser_profiles" / "vinted"
 LOGIN_TIMEOUT_S = 300  # 5 minuti per completare il login manuale
 
 # Il browser resta aperto dopo la risposta HTTP: è l'utente a cliccare
@@ -69,14 +70,12 @@ async def _try(label: str, coro, compilati: list, mancanti: list):
 async def pubblica_su_vinted(
     analysis: dict,
     image_filenames: list[str],
-    email: str = "",
-    password: str = "",
-    generated_dir: str = "generated",
 ) -> dict:
+    generated_dir = BASE_DIR / "generated"
     image_paths = [
-        str(Path(generated_dir) / f)
+        str(generated_dir / f)
         for f in image_filenames
-        if (Path(generated_dir) / f).exists()
+        if (generated_dir / f).exists()
     ]
 
     await _close_previous()
