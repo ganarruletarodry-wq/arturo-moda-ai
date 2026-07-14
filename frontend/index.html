@@ -42,13 +42,13 @@
 
         <!-- API Key (collapsible) -->
         <details class="api-keys-section" id="api-keys-details">
-          <summary>🔑 Imposta la tua API Key OpenAI (prima volta)</summary>
+          <summary>🔑 Imposta la tua API Key (prima volta)</summary>
           <div class="api-keys-grid">
             <div class="field">
-              <label for="openai-key">OpenAI API Key</label>
-              <input type="password" id="openai-key" placeholder="sk-..." autocomplete="off" />
+              <label for="openai-key">API Key (Gemini o OpenAI, in base al server)</label>
+              <input type="password" id="openai-key" placeholder="AIza... / AQ... / sk-..." autocomplete="off" />
             </div>
-            <p class="api-note">La chiave viene salvata solo nel tuo browser, non su nessun server. Serve un account su platform.openai.com</p>
+            <p class="api-note">La chiave viene salvata solo nel tuo browser, non su nessun server. Si crea su aistudio.google.com (Gemini) o platform.openai.com</p>
           </div>
         </details>
 
@@ -111,8 +111,8 @@
             <div class="info-chips" id="dash-chips"></div>
 
             <div class="quick-links">
-              <a href="https://platform.openai.com/settings/organization/billing/overview" target="_blank" rel="noopener">💳 Ricarica credito OpenAI</a>
-              <a href="https://platform.openai.com/usage" target="_blank" rel="noopener">📈 Consumi OpenAI</a>
+              <a href="https://platform.openai.com/settings/organization/billing/overview" target="_blank" rel="noopener" id="dash-billing-link">💳 Ricarica credito</a>
+              <a href="https://platform.openai.com/usage" target="_blank" rel="noopener" id="dash-usage-link">📈 Consumi</a>
               <a href="#" target="_blank" rel="noopener" id="dash-railway-link" class="hidden">🚂 Server Railway</a>
               <button class="btn btn-outline btn-small" onclick="loadStats(true)">↻ Aggiorna</button>
             </div>
@@ -127,11 +127,11 @@
         <div class="loading-center">
           <div class="spinner"></div>
           <h3 id="loading-title">Analisi in corso…</h3>
-          <p id="loading-sub" class="loading-sub">GPT-4o sta esaminando le tue foto</p>
+          <p id="loading-sub" class="loading-sub">L'AI sta esaminando le tue foto</p>
           <div class="progress-steps">
             <div class="progress-step" id="step-analyze">
               <span class="step-dot active"></span>
-              <span>Analisi indumento con GPT-4o</span>
+              <span>Analisi dell'indumento</span>
             </div>
             <div class="progress-step" id="step-images">
               <span class="step-dot"></span>
@@ -287,7 +287,7 @@
     </div>
 
     <footer class="footer">
-      Powered by GPT-4o Vision + GPT Image · Arturo v1.1
+      Powered by AI · Arturo
     </footer>
   </div>
 

@@ -1,8 +1,9 @@
 # Arturo — Annunci Moda AI
 
 App web che trasforma foto di indumenti in annunci professionali per Vinted, Catawiki, Subito e simili.
-Usa **GPT-4o Vision** per l'analisi e **gpt-image-1** (`images.edit` con `input_fidelity=high`) per
-generare immagini professionali mantenendo l'indumento identico alle foto originali.
+Provider di default: **Google Gemini** — `gemini-3.5-flash` per l'analisi e `gemini-3.1-flash-image`
+("Nano Banana 2") per le 4 immagini fedeli all'originale (~€0.16/annuncio). In alternativa
+(AI_PROVIDER=openai): GPT-4o Vision + gpt-image-1 con `input_fidelity=high` (~€0.80/annuncio).
 
 ## Stack
 
@@ -43,7 +44,9 @@ ARTURO/
 File `.env` nella root del progetto:
 
 ```
-OPENAI_API_KEY=sk-...          # obbligatoria — platform.openai.com → API Keys
+GEMINI_API_KEY=...             # consigliata — aistudio.google.com → Get API key
+AI_PROVIDER=gemini             # opzionale: gemini (default se c'è la chiave) | openai
+OPENAI_API_KEY=sk-...          # alternativa — platform.openai.com → API Keys
 IMAGE_QUALITY=high             # opzionale: high (default, max fedeltà) | medium (più economico)
 REQUIRE_CLIENT_KEY=true        # opzionale: su server pubblico, ogni utente usa la propria chiave
 APP_PASSWORD=...               # opzionale: protegge analisi/pubblicazione (consigliata online)

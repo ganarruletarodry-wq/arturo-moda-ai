@@ -410,7 +410,7 @@ function resetApp() {
   document.querySelectorAll('.step-dot').forEach((d) => {
     d.classList.remove('active', 'done');
   });
-  document.getElementById('loading-sub').textContent = 'GPT-4o sta esaminando le tue foto';
+  document.getElementById('loading-sub').textContent = 'L\'AI sta esaminando le tue foto';
   sectionResults.classList.add('hidden');
   sectionLoading.classList.add('hidden');
   sectionUpload.classList.remove('hidden');
@@ -519,23 +519,41 @@ async function loadStats(force = false) {
     document.getElementById('stat-totali').textContent = s.annunci_totali;
     document.getElementById('stat-spesa').textContent = `~€${(s.spesa_stimata_eur || 0).toFixed(2)}`;
 
+    const isGemini = s.provider === 'gemini';
+    const provName = isGemini ? 'Google Gemini' : 'OpenAI';
+
     const badge = document.getElementById('dash-credit');
     badge.classList.remove('credit-ok', 'credit-ko');
     if (s.credito_openai === 'ok') {
-      badge.textContent = '🟢 Credito OpenAI: attivo (ultimo annuncio riuscito)';
+      badge.textContent = `🟢 Credito ${provName}: attivo (ultimo annuncio riuscito)`;
       badge.classList.add('credit-ok');
     } else if (s.credito_openai === 'esaurito') {
-      badge.textContent = '🔴 Credito OpenAI: ESAURITO — ricarica dal link qui sotto';
+      badge.textContent = `🔴 Credito ${provName}: ESAURITO — sistemalo dal link qui sotto`;
       badge.classList.add('credit-ko');
     } else {
-      badge.textContent = '⚪ Credito OpenAI: sconosciuto (nessun annuncio ancora generato)';
+      badge.textContent = `⚪ Credito ${provName}: sconosciuto (nessun annuncio ancora generato)`;
+    }
+
+    // Link rapidi in base al provider
+    const billing = document.getElementById('dash-billing-link');
+    const usage = document.getElementById('dash-usage-link');
+    if (isGemini) {
+      billing.href = 'https://console.cloud.google.com/billing';
+      billing.textContent = '💳 Fatturazione Google';
+      usage.href = 'https://aistudio.google.com/usage';
+      usage.textContent = '📈 Consumi Gemini';
+    } else {
+      billing.href = 'https://platform.openai.com/settings/organization/billing/overview';
+      billing.textContent = '💳 Ricarica credito OpenAI';
+      usage.href = 'https://platform.openai.com/usage';
+      usage.textContent = '📈 Consumi OpenAI';
     }
 
     const chips = document.getElementById('dash-chips');
     chips.innerHTML = '';
-    const qualityLabel = s.qualita_immagini === 'high' ? 'Qualità: massima (~€0,80/annuncio)' : `Qualità: ${s.qualita_immagini} (~€0,30/annuncio)`;
+    const costLabel = s.costo_annuncio_eur ? ` (~€${s.costo_annuncio_eur.toFixed(2)}/annuncio)` : '';
     const items = [
-      qualityLabel,
+      `AI: ${provName}${costLabel}`,
       s.rate_limit_ora > 0 ? `Limite: ${s.rate_limit_ora} annunci/ora a persona` : 'Nessun limite orario',
       `${s.immagini_totali} immagini generate`,
       `Versione ${s.versione}`,

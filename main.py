@@ -27,6 +27,12 @@ load_dotenv(BASE_DIR / ".env")
 
 from services.openai_describe_service import analyze_clothing
 from services.image_service import generate_clothing_images
+from services.gemini_service import (
+    analyze_clothing_gemini,
+    generate_clothing_images_gemini,
+    GeminiQuotaError,
+    GeminiAuthError,
+)
 from services.vinted_service import pubblica_su_vinted
 from services.catawiki_service import pubblica_su_catawiki
 from services.pw_runner import esegui
@@ -43,8 +49,15 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Su un server pubblico impostare REQUIRE_CLIENT_KEY=true: ogni utente deve
-# fornire la propria chiave OpenAI e quella del server non viene mai usata.
+# fornire la propria chiave e quella del server non viene mai usata.
 REQUIRE_CLIENT_KEY = os.getenv("REQUIRE_CLIENT_KEY", "false").lower() == "true"
+
+# Provider AI: gemini (default se c'è GEMINI_API_KEY, ~€0.16/annuncio)
+# oppure openai (~€0.80/annuncio). Forzabile con AI_PROVIDER.
+AI_PROVIDER = os.getenv("AI_PROVIDER", "").lower() or (
+    "gemini" if os.getenv("GEMINI_API_KEY") else "openai"
+)
+PROVIDER_KEY_ENV = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}
 
 # Se impostata, le operazioni costose (analisi/pubblicazione) richiedono
 # questa password: da usare quando l'app è esposta online.
@@ -71,6 +84,19 @@ IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "high")
 # Stime in EUR (vedi tabella costi in CLAUDE.md)
 COST_PER_IMAGE_EUR = {"low": 0.03, "medium": 0.07, "high": 0.19}
 COST_ANALYSIS_EUR = 0.02
+# Gemini: Nano Banana 2 ($0.039/img a 1024px) + analisi flash
+GEMINI_COST_PER_IMAGE_EUR = 0.036
+GEMINI_COST_ANALYSIS_EUR = 0.005
+
+
+def _cost_per_image() -> float:
+    if AI_PROVIDER == "gemini":
+        return GEMINI_COST_PER_IMAGE_EUR
+    return COST_PER_IMAGE_EUR.get(IMAGE_QUALITY, 0.19)
+
+
+def _cost_analysis() -> float:
+    return GEMINI_COST_ANALYSIS_EUR if AI_PROVIDER == "gemini" else COST_ANALYSIS_EUR
 
 
 def _empty_stats() -> dict:
@@ -108,9 +134,7 @@ def _record_annuncio(n_images: int) -> None:
         stats["giorni"] = dict(sorted(stats["giorni"].items())[-30:])
         stats["annunci_totali"] += 1
         stats["immagini_totali"] += n_images
-        stats["spesa_stimata_eur"] += (
-            COST_ANALYSIS_EUR + n_images * COST_PER_IMAGE_EUR.get(IMAGE_QUALITY, 0.19)
-        )
+        stats["spesa_stimata_eur"] += _cost_analysis() + n_images * _cost_per_image()
         stats["credito_openai"] = "ok"
         stats["ultimo_annuncio"] = datetime.now(timezone.utc).isoformat()
         _save_stats(stats)
@@ -142,9 +166,10 @@ async def _cleanup_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if os.getenv("OPENAI_API_KEY") and not REQUIRE_CLIENT_KEY and not APP_PASSWORD:
+    logger.info("Provider AI attivo: %s", AI_PROVIDER)
+    if os.getenv(PROVIDER_KEY_ENV[AI_PROVIDER]) and not REQUIRE_CLIENT_KEY and not APP_PASSWORD:
         logger.warning(
-            "ATTENZIONE: il server ha la chiave OpenAI ma nessuna APP_PASSWORD. "
+            "ATTENZIONE: il server ha la chiave API ma nessuna APP_PASSWORD. "
             "Se l'app è esposta online, chiunque può generare annunci a tue spese. "
             "Imposta APP_PASSWORD nel .env (o REQUIRE_CLIENT_KEY=true)."
         )
@@ -193,15 +218,16 @@ def _check_rate_limit(request: Request) -> None:
     window.append(now)
 
 
-def get_openai_key(form_key: Optional[str]) -> str:
+def get_ai_key(form_key: Optional[str]) -> str:
+    env_var = PROVIDER_KEY_ENV[AI_PROVIDER]
     if REQUIRE_CLIENT_KEY:
         key = form_key or ""
         if not key:
-            raise HTTPException(400, "Inserisci la tua API key OpenAI (richiesta su questo server)")
+            raise HTTPException(400, "Inserisci la tua API key (richiesta su questo server)")
         return key
-    key = form_key or os.getenv("OPENAI_API_KEY", "")
+    key = form_key or os.getenv(env_var, "")
     if not key:
-        raise HTTPException(400, "API key OpenAI mancante")
+        raise HTTPException(400, f"API key mancante ({env_var})")
     return key
 
 
@@ -217,7 +243,7 @@ async def analyze(
         raise HTTPException(400, "Massimo 4 foto")
 
     _check_rate_limit(request)
-    oai_key = get_openai_key(openai_key)
+    ai_key = get_ai_key(openai_key)
 
     session_id = uuid.uuid4().hex
     saved_paths: list[str] = []
@@ -240,26 +266,44 @@ async def analyze(
 
         loop = asyncio.get_running_loop()
 
-        # Analisi GPT-4o su thread separato (non blocca il server)
+        analyze_fn = analyze_clothing_gemini if AI_PROVIDER == "gemini" else analyze_clothing
+        images_fn = (
+            generate_clothing_images_gemini if AI_PROVIDER == "gemini"
+            else generate_clothing_images
+        )
+
+        # Analisi vision su thread separato (non blocca il server)
         analysis = await loop.run_in_executor(
-            None, analyze_clothing, saved_paths, oai_key
+            None, analyze_fn, saved_paths, ai_key
         )
 
         # Generazione 4 immagini in parallelo: TUTTE le foto originali come
-        # riferimento visivo + descrizione GPT-4o nel prompt
+        # riferimento visivo + descrizione dell'analisi nel prompt
         images, image_errors = await loop.run_in_executor(
             None,
             partial(
-                generate_clothing_images,
+                images_fn,
                 reference_image_paths=saved_paths,
                 model_prompt=analysis.get("prompt_immagine_modella", ""),
                 product_prompt=analysis.get("prompt_sfondo_bianco", ""),
-                api_key=oai_key,
+                api_key=ai_key,
             ),
         )
     except HTTPException:
         _cleanup()
         raise
+    except GeminiAuthError:
+        _cleanup()
+        raise HTTPException(401, "Chiave Gemini non valida o senza permessi. Controlla la API key.")
+    except GeminiQuotaError:
+        _cleanup()
+        _record_credito_esaurito()
+        raise HTTPException(
+            402,
+            "Quota Google Gemini esaurita o fatturazione non attiva: chi gestisce l'app "
+            "deve controllare su console.cloud.google.com/billing. Se la fatturazione è "
+            "appena stata attivata, riprova tra qualche minuto.",
+        )
     except openai.AuthenticationError:
         _cleanup()
         raise HTTPException(401, "Chiave OpenAI non valida o revocata. Controlla la API key.")
@@ -368,7 +412,7 @@ async def publish_catawiki(req: PublishRequest):
     return await _run_publish(pubblica_su_catawiki, req)
 
 
-APP_VERSION = "1.5-dashboard"
+APP_VERSION = "1.6-gemini"
 
 
 @app.get("/health")
@@ -390,7 +434,9 @@ async def get_stats():
         "credito_openai": stats["credito_openai"],
         "ultimo_annuncio": stats["ultimo_annuncio"],
         "da": stats["da"],
+        "provider": AI_PROVIDER,
         "qualita_immagini": IMAGE_QUALITY,
+        "costo_annuncio_eur": round(_cost_analysis() + 4 * _cost_per_image(), 2),
         "rate_limit_ora": RATE_LIMIT_PER_HOUR,
         "versione": APP_VERSION,
         "railway_url": (
@@ -401,9 +447,13 @@ async def get_stats():
 
 @app.get("/api/config")
 async def config():
-    has_key = bool(os.getenv("OPENAI_API_KEY", "").strip()) and not REQUIRE_CLIENT_KEY
+    has_key = (
+        bool(os.getenv(PROVIDER_KEY_ENV[AI_PROVIDER], "").strip())
+        and not REQUIRE_CLIENT_KEY
+    )
     return {
         "server_has_key": has_key,
+        "provider": AI_PROVIDER,
         "password_required": bool(APP_PASSWORD),
         "publish_available": _has_display(),
     }
