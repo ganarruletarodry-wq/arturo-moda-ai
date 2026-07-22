@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import uuid
 import json
@@ -374,7 +375,7 @@ def _has_display() -> bool:
     # schermo (PC dell'utente), non su un server remoto.
     if os.getenv("PLAYWRIGHT_HEADLESS", "").lower() == "true":
         return False
-    return os.name == "nt" or bool(os.getenv("DISPLAY"))
+    return os.name == "nt" or sys.platform == "darwin" or bool(os.getenv("DISPLAY"))
 
 
 async def _run_publish(publish_func, req: PublishRequest) -> dict:

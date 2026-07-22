@@ -13,8 +13,12 @@ tu controlli e clicchi Pubblica.
 
 2. **Scarica questa cartella** sul tuo PC (o clonala con git).
 
-3. **Fai doppio click su `run.bat`** — la prima volta scarica tutto da solo
-   (qualche minuto), poi apre l'app nel browser.
+3. **Avvia l'app** — la prima volta scarica tutto da sola (qualche minuto),
+   poi apre l'app nel browser:
+   - **Windows**: doppio click su `run.bat`
+   - **Mac**: doppio click su `run.command` (la prima volta macOS potrebbe
+     bloccarlo: tasto destro sul file → **Apri** → Apri. In alternativa,
+     da Terminale: `bash run.command`)
 
 ## Chiave API (necessaria)
 
