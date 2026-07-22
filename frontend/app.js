@@ -189,7 +189,7 @@ async function startAnalysis() {
 
     clearTimeout(stepTimer);
 
-    if (response.status === 401) {
+    if (response.status === 401 && passwordRequired) {
       handleUnauthorized();
       throw new Error('Password dell\'app richiesta.');
     }
@@ -459,7 +459,7 @@ async function confirmPublish() {
       }),
     });
 
-    if (res.status === 401) {
+    if (res.status === 401 && passwordRequired) {
       handleUnauthorized();
       throw new Error('Password dell\'app richiesta.');
     }
